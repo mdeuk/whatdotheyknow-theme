@@ -49,6 +49,13 @@ jobs:
           output: lychee_report.json
           fail: false  # Ensure the workflow continues even if broken links are found
 
+
+      - name: Archive raw output
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-output
+          path: lychee_report.json
+          
       # Step to extract and inspect lines around 357
       - name: Extract lines from the JSON file for inspection
         run: |
