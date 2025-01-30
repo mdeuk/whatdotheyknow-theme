@@ -54,11 +54,11 @@ jobs:
           # echo lychee_report.json
           cat lychee_report.json
           # Check if lychee_report.json is not empty or null
-          if [ -s lychee_report.json ] && [ "$(jq -r '.links' lychee_report.json)" != "null" ]; then
-            # Extract unique broken links with their status code/message, skip invalid JSON entries
-            jq -r 'try .links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)" catch null' lychee_report.json | sort | uniq > broken_links.txt
+          if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
+            # Extract unique broken links with their status code/message
+            jq -r '.error_map[] | .[] | "\(.url) - \(.status.code) \(.status.text)"' lychee_report.json | sort | uniq > broken_links.txt
           else
-            echo "No links found or lychee_report.json is empty."
+            echo "No broken links found or lychee_report.json is empty."
             touch broken_links.txt
           fi
 
