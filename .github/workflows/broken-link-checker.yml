@@ -14,6 +14,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prompt for Test Mode
+        if: github.event_name == 'workflow_dispatch'
+        id: prompt
+        run: |
+          echo "Please confirm if you want to run in test mode (yes/no):"
+          read test_mode
+          echo "test_mode=$test_mode" >> $GITHUB_ENV
+
       - name: Restore lychee cache
         uses: actions/cache@v4
         with:
@@ -25,13 +33,13 @@ jobs:
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --format json --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
+          args: "--cache --max-cache-age 1d --format json --no-progress --output lychee_report.json --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
           fail: false  # Ensure the workflow continues even if broken links are found
 
       - name: Process Lychee Output
         run: |
           # Extract unique broken links with their status code/message
-          jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' "${{ steps.lychee.outputs.jsonReport }}" | sort | uniq > broken_links.txt
+          jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' lychee_report.json | sort | uniq > broken_links.txt
 
           if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
@@ -40,11 +48,11 @@ jobs:
           fi
 
       - name: Save lychee cache
-        uses: actions/cache/save@v4
+        uses: actions/cache@v4
         if: always()
         with:
           path: .lycheecache
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          key: cache-lychee-${{ github.sha }}
 
       - name: Print Results (Manual Run)
         if: github.event_name == 'workflow_dispatch'
@@ -59,7 +67,7 @@ jobs:
           fi
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
-        if: github.event_name != 'workflow_dispatch' && env.broken_links == 'true'
+        if: github.event_name != 'workflow_dispatch' && env.broken_links == 'true' || github.event_name == 'workflow_dispatch' && env.test_mode != 'yes' && env.broken_links == 'true'
         run: |
           while read -r broken_link; do
             echo "Processing $broken_link"
