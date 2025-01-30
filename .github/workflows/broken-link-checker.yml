@@ -65,7 +65,7 @@ jobs:
 
       - name: Archive raw output
         uses: actions/upload-artifact@v4
-        if: (github.event_name == 'workflow_dispatch' && env.test_mode == true)
+        if: env.test_mode == true
         with:
           name: raw-output
           path: lychee_report.json
