@@ -47,8 +47,14 @@ jobs:
 
       - name: Process Lychee Output
         run: |
-          # Extract unique broken links with their status code/message
-          jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' lychee_report.json | sort | uniq > broken_links.txt
+          # Check if lychee_report.json is not empty or null
+          if [ -s lychee_report.json ] && [ "$(jq -r '.links' lychee_report.json)" != "null" ]; then
+            # Extract unique broken links with their status code/message
+            jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' lychee_report.json | sort | uniq > broken_links.txt
+          else
+            echo "No links found or lychee_report.json is empty."
+            touch broken_links.txt
+          fi
 
           if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
