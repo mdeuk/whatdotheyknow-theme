@@ -1,9 +1,8 @@
 name: Check Broken Links
 
-defaults:
-  run:
-    env:
-      test_mode: false
+env:
+  test_mode: false
+  broken_links: false
 
 on:
   schedule:
@@ -13,6 +12,7 @@ on:
       testMode:
         type: boolean
         description: Test mode? (yes/no)
+        default: true
 
 jobs:
   check-links:
