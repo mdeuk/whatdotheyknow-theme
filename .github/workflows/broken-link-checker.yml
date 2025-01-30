@@ -1,0 +1,99 @@
+name: Check Broken Links
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Runs every Monday at 03:00 UTC
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  check-links:
+    name: Check for Broken Links
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install lychee
+        run: |
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/latest/download/lychee-linux.tar.gz | tar xz
+          sudo mv lychee /usr/local/bin/
+
+      - name: Find and check links in `lib/views`
+        id: lychee
+        run: |
+          # Scan for broken links
+          grep -oP '(?<=href=")[^"]+' $(find lib/views -name '*.erb') | lychee --stdin --verbose | tee lychee_output.txt
+          
+          # Extract unique broken links
+          awk '/🚨/ {print $3}' lychee_output.txt | sort | uniq > broken_links.txt
+
+          if [ -s broken_links.txt ]; then
+            echo "broken_links=true" >> $GITHUB_ENV
+          else
+            echo "broken_links=false" >> $GITHUB_ENV
+          fi
+
+      - name: Print Results (Manual Run)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "=== Broken Links Report ==="
+          cat broken_links.txt || echo "No broken links found!"
+
+      - name: Comment on Workflow Run (Manual Run)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ -s broken_links.txt ]; then
+            echo "## 🔗 Broken Links Found" > comment_body.txt
+            echo "The following broken links were detected in `.erb` files:" >> comment_body.txt
+            echo "" >> comment_body.txt
+            cat broken_links.txt | while read -r link; do
+              affected_files=$(grep -l "$link" $(find lib/views -name '*.erb') | tr '\n' ',' | sed 's/,$//')
+              echo "- **$link** (found in: $affected_files)" >> comment_body.txt
+            done
+          else
+            echo "✅ No broken links found!" > comment_body.txt
+          fi
+
+          gh run comment --body "$(cat comment_body.txt)"
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Issues for Each Unique Broken Link (if not already open)
+        if: github.event_name != 'workflow_dispatch' && env.broken_links == 'true'
+        run: |
+          while read -r broken_link; do
+            echo "Processing $broken_link"
+
+            # Check if an issue already exists for this broken link
+            existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=broken%20link" | \
+              jq -r '.[] | select(.title | contains("'"$broken_link"'")) | .title')
+
+            if [[ ! -z "$existing_issue" ]]; then
+              echo "Issue already exists for $broken_link. Skipping..."
+              continue
+            fi
+
+            # Find all files containing the broken link
+            affected_files=$(grep -l "$broken_link" $(find lib/views -name '*.erb') | tr '\n' ',' | sed 's/,$//')
+
+            # Determine if any file is inside `lib/views/help/`
+            if echo "$affected_files" | grep -q "lib/views/help/"; then
+              labels="broken link, non-developer, help-pages"
+            else
+              labels="broken link, non-developer"
+            fi
+
+            # Create a new issue for this broken link
+            curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 https://api.github.com/repos/${{ github.repository }}/issues \
+                 -d '{
+                   "title": "Broken Link: '"$broken_link"'",
+                   "body": "The following `.erb` files contain a broken link to **'"$broken_link"'**:\n\n'"$affected_files"'",
+                   "labels": ['"$labels"']
+                 }'
+          done < broken_links.txt
