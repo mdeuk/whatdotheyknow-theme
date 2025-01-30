@@ -2,6 +2,7 @@ name: Check Broken Links
 
 env:
   test_mode: false
+  create_issues: true
   broken_links: false
 
 on:
@@ -11,8 +12,12 @@ on:
     inputs:
       testMode:
         type: boolean
-        description: Test mode? (yes/no)
+        description: Test mode? (does not create issues)
         default: true
+      createIssues:
+        type: boolean
+        description: Create issues for broken links?
+        default: false
 
 jobs:
   check-links:
@@ -21,14 +26,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Check run mode
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "Test mode: ${{ github.event.inputs.testMode }}"
-        env:
-          test_mode: ${{ github.event.inputs.testMode }}
+          echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+          echo "create_issues=${{ github.event.inputs.createIssues }}" >> $GITHUB_ENV
 
       - name: Restore lychee cache
         uses: actions/cache@v4
@@ -47,10 +51,12 @@ jobs:
 
       - name: Process Lychee Output
         run: |
+          # echo lychee_report.json
+          cat lychee_report.json
           # Check if lychee_report.json is not empty or null
           if [ -s lychee_report.json ] && [ "$(jq -r '.links' lychee_report.json)" != "null" ]; then
-            # Extract unique broken links with their status code/message
-            jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' lychee_report.json | sort | uniq > broken_links.txt
+            # Extract unique broken links with their status code/message, skip invalid JSON entries
+            jq -r 'try .links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)" catch null' lychee_report.json | sort | uniq > broken_links.txt
           else
             echo "No links found or lychee_report.json is empty."
             touch broken_links.txt
@@ -82,7 +88,7 @@ jobs:
           fi
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
-        if: env.test_mode == false && env.broken_links == 'true'
+        if: env.test_mode == false && env.create_issues == true && env.broken_links == 'true'
         run: |
           while read -r broken_link; do
             echo "Processing $broken_link"
