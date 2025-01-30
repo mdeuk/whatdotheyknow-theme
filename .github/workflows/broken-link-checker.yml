@@ -11,7 +11,7 @@ on:
     inputs:
       testMode:
         type: boolean
-        description: Test mode? (does not create issues)
+        description: Test mode? (does not create issues unless told to)
         default: true
       createIssues:
         type: boolean
@@ -49,9 +49,22 @@ jobs:
           output: lychee_report.json
           fail: false  # Ensure the workflow continues even if broken links are found
 
+      # Step to extract and inspect lines around 357
+      - name: Extract lines from the JSON file for inspection
+        run: |
+          # Output a range of lines from the file (lines 340 to 370)
+          echo "Inspecting lines around line 357 of lychee_report.json"
+          head -n 370 lychee_report.json | tail -n 30
+          
+      # Step to validate the JSON file using jq in less strict mode
+      - name: Validate JSON with jq
+        run: |
+          # Try jq in 'strict' mode and exit with 0 if valid
+          echo "Validating JSON file with jq..."
+          jq -e . lychee_report.json || echo "Invalid JSON found"
+          
       - name: Process Lychee Output
         run: |
-          cat lychee_report.json
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '.error_map | to_entries[] | .key as $file | .value[] | "\($file) \(.url) \(.status.code) \(.status.text)"' lychee_report.json > broken_links.txt
           else
