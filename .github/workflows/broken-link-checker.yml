@@ -1,5 +1,4 @@
 name: Check Broken Links
-
 env:
   test_mode: false
   create_issues: true
@@ -57,13 +56,12 @@ jobs:
             jq -r '.error_map | to_entries[] | .key as $file | .value[] | "\($file) \(.url) - \(.status.code // "N/A") \(.status.text)"' lychee_report.json | sort | uniq > broken_links.txt
           else
             echo "No broken links found or lychee_report.json is empty."
-            touch broken_links.txt
           fi
 
           if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
           else
-           echo "broken_links=false" >> $GITHUB_ENV
+            echo "broken_links=false" >> $GITHUB_ENV
           fi
 
       - name: Save lychee cache
@@ -79,10 +77,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Broken Links Report ==="
-          if [ -f broken_links.txt ]; then
+          if [ -s broken_links.txt ]; then
             cat broken_links.txt
           else
             echo "No broken links found!"
+          fi
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
         if: (env.test_mode == false && env.create_issues == true && env.broken_links == 'true') || (env.test_mode == true && env.create_issues == true && env.broken_links == 'true')
