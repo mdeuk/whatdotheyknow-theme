@@ -18,7 +18,6 @@ on:
         description: Create issues for broken links?
         default: false
 
-
 jobs:
   check-links:
     name: Check for Broken Links
