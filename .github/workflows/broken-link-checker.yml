@@ -53,12 +53,12 @@ jobs:
         run: |
           cat lychee_report.json
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            jq -r '.error_map | to_entries[] | .key as $file | .value[] | "\($file) \(.url) - \((.status.code // "N/A")) \(.status.text)"' lychee_report.json | sort | uniq > broken_links.txt
+            jq -r '.error_map | to_entries[] | .key as $file | .value[] | "\($file) \(.url) \(.status.code) \(.status.text)"' lychee_report.json > broken_links.txt
           else
             echo "No broken links found or lychee_report.json is empty."
           fi
 
-          if [ -s broken_links.txt ]; then
+          if [ -s brokn_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
           else
             echo "broken_links=false" >> $GITHUB_ENV
