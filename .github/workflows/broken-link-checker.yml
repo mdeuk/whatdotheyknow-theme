@@ -28,6 +28,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check run mode
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+          echo "create_issues=${{ github.event.inputs.createIssues }}" >> $GITHUB_ENV
+          
       # Restore lychee cache
       - name: Restore lychee cache
         id: restore-cache
