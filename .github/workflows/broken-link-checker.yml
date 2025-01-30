@@ -25,13 +25,13 @@ jobs:
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--verbose --cache --max-cache-age 1d --format json --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
+          args: "--cache --max-cache-age 1d --format json --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
           fail: false  # Ensure the workflow continues even if broken links are found
 
       - name: Process Lychee Output
         run: |
-          # Extract unique broken links
-          jq -r '.links[] | select(.status == "Failed") | .target' "${{ steps.lychee.outputs.jsonReport }}" | sort | uniq > broken_links.txt
+          # Extract unique broken links with their status code/message
+          jq -r '.links[] | select(.status == "Failed") | "\(.target) - \(.status_code) \(.message)"' "${{ steps.lychee.outputs.jsonReport }}" | sort | uniq > broken_links.txt
 
           if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
@@ -48,29 +48,15 @@ jobs:
 
       - name: Print Results (Manual Run)
         if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "=== Broken Links Report ==="
-          cat broken_links.txt || echo "No broken links found!"
-
-      - name: Comment on Workflow Run (Manual Run)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          if [ -s broken_links.txt ]; then
-            echo "## 🔗 Broken Links Found" > comment_body.txt
-            echo "The following broken links were detected in `.erb` files:" >> comment_body.txt
-            echo "" >> comment_body.txt
-            cat broken_links.txt | while read -r link; do
-              affected_files=$(grep -l "$link" $(find lib/views -name '*.erb') | tr '\n' ',' | sed 's/,$//')
-              echo "- **$link** (found in: $affected_files)" >> comment_body.txt
-            done
-          else
-            echo "✅ No broken links found!" > comment_body.txt
-          fi
-
-          gh run comment --body "$(cat comment_body.txt)"
-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Broken Links Report ==="
+          if [ -f broken_links.txt ]; then
+            cat broken_links.txt
+          else
+            echo "No broken links found!"
+          fi
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
         if: github.event_name != 'workflow_dispatch' && env.broken_links == 'true'
