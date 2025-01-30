@@ -1,9 +1,18 @@
 name: Check Broken Links
 
+defaults:
+  run:
+    env:
+      test_mode: false
+
 on:
   schedule:
     - cron: '0 3 * * 1'  # Runs every Monday at 03:00 UTC
   workflow_dispatch:  # Allows manual triggering
+    inputs:
+      testMode:
+        type: boolean
+        description: Test mode? (yes/no)
 
 jobs:
   check-links:
@@ -14,13 +23,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prompt for Test Mode
+      - name: Check run mode
         if: github.event_name == 'workflow_dispatch'
-        id: prompt
         run: |
-          echo "Please confirm if you want to run in test mode (yes/no):"
-          read test_mode
-          echo "test_mode=$test_mode" >> $GITHUB_ENV
+          echo "Test mode: ${{ github.event.inputs.testMode }}"
+        env:
+          test_mode: ${{ github.event.inputs.testMode }}
 
       - name: Restore lychee cache
         uses: actions/cache@v4
@@ -67,7 +75,7 @@ jobs:
           fi
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
-        if: github.event_name != 'workflow_dispatch' && env.broken_links == 'true' || github.event_name == 'workflow_dispatch' && env.test_mode != 'yes' && env.broken_links == 'true'
+        if: env.test_mode == false && env.broken_links == 'true'
         run: |
           while read -r broken_link; do
             echo "Processing $broken_link"
