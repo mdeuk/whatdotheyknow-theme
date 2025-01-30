@@ -11,7 +11,7 @@ on:
     inputs:
       testMode:
         type: boolean
-        description: Test mode? (does not create issues unless told to)
+        description: Test mode? (does not create issues)
         default: true
       createIssues:
         type: boolean
@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Check run mode
         if: github.event_name == 'workflow_dispatch'
@@ -45,17 +45,17 @@ jobs:
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --format json --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
+          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
           output: lychee_report.json
+          format: json
           fail: false  # Ensure the workflow continues even if broken links are found
-
 
       - name: Archive raw output
         uses: actions/upload-artifact@v4
         with:
           name: raw-output
           path: lychee_report.json
-          
+
       # Step to extract and inspect lines around 357
       - name: Extract lines from the JSON file for inspection
         run: |
@@ -69,7 +69,7 @@ jobs:
           # Try jq in 'strict' mode and exit with 0 if valid
           echo "Validating JSON file with jq..."
           jq -e . lychee_report.json || echo "Invalid JSON found"
-          
+
       - name: Process Lychee Output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
@@ -78,11 +78,16 @@ jobs:
             echo "No broken links found or lychee_report.json is empty."
           fi
 
-          if [ -s reformatted_broken_links.json ]; then
+          if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
           else
             echo "broken_links=false" >> $GITHUB_ENV
           fi
+            if [ -s broken_links.txt ]; then
+            jq -r '.error_map | to_entries | group_by(.value[].url) | map({url: .[0].value[0].url, status: .[0].value[0].status, files: map(.key)})' lychee_report.json > reformatted_broken_links.json
+            else
+            echo "No broken links found or lychee_report.json is empty."
+            fi
 
       - name: Save lychee cache
         uses: actions/cache/save@v4
@@ -97,8 +102,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Broken Links Report ==="
-          if [ -s reformatted_broken_links.json ]; then
-            cat reformatted_broken_links.json
+          if [ -s broken_links.txt ]; then
+            cat broken_links.txt
           else
             echo "No broken links found!"
           fi
@@ -123,6 +128,8 @@ jobs:
               continue
             fi
             affected_files=$(grep -l "$broken_link" $(find lib/views -name '*.erb') | tr '\n' ',' | sed 's/,$//')
+            cat $affected_files | grep -n "$broken_link"
+            
             if echo "$affected_files" | grep -q "lib/views/help/"; then
               labels="broken link, non-developer, help-pages"
             else
