@@ -14,11 +14,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
       - name: Run Lychee to Check Links
         id: lychee
-        uses: lycheeverse/lychee-action@v1
+        uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--verbose --format json --no-progress $(find lib/views -name '*.erb')"
+          args: "--verbose --cache --max-cache-age 1d --format json --no-progress --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
           fail: false  # Ensure the workflow continues even if broken links are found
 
       - name: Process Lychee Output
@@ -31,6 +38,13 @@ jobs:
           else
             echo "broken_links=false" >> $GITHUB_ENV
           fi
+
+      - name: Save lychee cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .lycheecache
+          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
       - name: Print Results (Manual Run)
         if: github.event_name == 'workflow_dispatch'
