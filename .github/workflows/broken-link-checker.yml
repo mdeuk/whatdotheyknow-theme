@@ -66,12 +66,12 @@ jobs:
       - name: Process Lychee Output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            jq -r '.error_map | to_entries[] | .key as $file | .value[] | "\($file) \(.url) \(.status.code) \(.status.text)"' lychee_report.json | sort | uniq > broken_links.txt
+            jq -r '.error_map | to_entries | group_by(.value[].url) | map({url: .[0].value[0].url, status: .[0].value[0].status, files: map(.key)})' lychee_report.json > reformatted_broken_links.json
           else
             echo "No broken links found or lychee_report.json is empty."
           fi
 
-          if [ -s brokn_links.txt ]; then
+          if [ -s reformatted_broken_links.json ]; then
             echo "broken_links=true" >> $GITHUB_ENV
           else
             echo "broken_links=false" >> $GITHUB_ENV
@@ -90,8 +90,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Broken Links Report ==="
-          if [ -s broken_links.txt ]; then
-            cat broken_links.txt
+          if [ -s reformatted_broken_links.json ]; then
+            cat reformatted_broken_links.json
           else
             echo "No broken links found!"
           fi
