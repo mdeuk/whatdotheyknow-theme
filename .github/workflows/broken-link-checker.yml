@@ -14,19 +14,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install lychee
-        run: |
-          curl -sSfL https://github.com/lycheeverse/lychee/releases/latest/download/lychee-linux.tar.gz | tar xz
-          sudo mv lychee /usr/local/bin/
-
-      - name: Find and check links in `lib/views`
+      - name: Run Lychee to Check Links
         id: lychee
+        uses: lycheeverse/lychee-action@v1
+        with:
+          args: "--verbose --format json --no-progress $(find lib/views -name '*.erb')"
+          fail: false  # Ensure the workflow continues even if broken links are found
+
+      - name: Process Lychee Output
         run: |
-          # Scan for broken links
-          grep -oP '(?<=href=")[^"]+' $(find lib/views -name '*.erb') | lychee --stdin --verbose | tee lychee_output.txt
-          
           # Extract unique broken links
-          awk '/🚨/ {print $3}' lychee_output.txt | sort | uniq > broken_links.txt
+          jq -r '.links[] | select(.status == "Failed") | .target' "${{ steps.lychee.outputs.jsonReport }}" | sort | uniq > broken_links.txt
 
           if [ -s broken_links.txt ]; then
             echo "broken_links=true" >> $GITHUB_ENV
