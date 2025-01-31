@@ -164,7 +164,7 @@ jobs:
             fi
 
             issue_title="Broken Link: $url"
-            existing_issue=$(gh issue list --state open --label "broken-link" --json number,title | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
+            existing_issues=$(gh issue list --state open --label "broken-link" --json number,title | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
 
             labels="broken-link,non-developer"
             if echo "$affected_files" | grep -q "lib/views/help/"; then
@@ -176,8 +176,11 @@ jobs:
             echo "**Status Code:** $status_code ($status_text)" >> issue.md
             echo "**Affected Files:** $affected_files" >> issue.md
 
+
             if [[ -n "$existing_issue" ]]; then
-              gh issue comment "$existing_issue" --body "🔄 **Update:** Broken link still exists. Affected files:\n\n$affected_files"
+              for issue in $existing_issues; do
+                gh issue comment "$issue" --body "🔄 **Update:** Broken link still exists. Affected files:\n\n$affected_files"
+              done
             else
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels"
             fi
