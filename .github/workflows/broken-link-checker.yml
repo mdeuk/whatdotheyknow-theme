@@ -80,11 +80,11 @@ jobs:
           fi
 
           if [ -s reformatted_broken_links.json ] && [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
-            echo "broken_links=true" >> $GITHUB_ENV
-            echo "broken_links=true" >> $GITHUB_OUTPUT
+              echo "broken_links=true" >> $GITHUB_ENV
+              echo "broken_links=true" >> $GITHUB_OUTPUT
           else
-            echo "broken_links=false" >> $GITHUB_ENV
-            echo "broken_links=false" >> $GITHUB_OUTPUT
+              echo "broken_links=false" >> $GITHUB_ENV
+              echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Archive raw output
@@ -108,9 +108,7 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
-    if: ${{ needs.check-links.outputs.broken_links == 'true' }}  # Correctly check output
-    env:
-      test_mode: ${{ env.test_mode }}
+    if: ${{ needs.check-links.outputs.broken_links == true }}  # Correctly check output
     steps:
       - name: Create Issues for Each Broken Link
         run: |
