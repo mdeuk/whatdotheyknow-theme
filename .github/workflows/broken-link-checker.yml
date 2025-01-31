@@ -104,6 +104,21 @@ jobs:
           path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
+  create-issues:
+    name: Create Issues for Broken Links
+    runs-on: ubuntu-latest
+    needs: check-links
+    if: ${{env.broken_links == 'true'}}
+    steps:
+      - name: Run Create Issues Job
+        uses: ./.github/actions/create-issues
+        with:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          test_mode: ${{ env.test_mode }}
+          create_issues: ${{ env.create_issues }}
+          broken_links: ${{ env.broken_links }}
+          max_test_issues: ${{ env.max_test_issues }}
+
       - name: Create (or update) Issues for Each Unique Broken Link
         if: ${{ (env.test_mode == 'false' && env.create_issues == 'true' && env.broken_links == 'true') || (env.test_mode == 'true' && env.create_issues == 'true' && env.broken_links == 'true') }}
         run: |
@@ -142,9 +157,9 @@ jobs:
               | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
 
             # Assign labels (add "help-pages" if needed)
-            labels="broken-link, non-developer"
+            labels="broken link, non-developer"
             if echo "$affected_files" | grep -q "lib/views/help/"; then
-              labels="broken-link, non-developer, help-pages"
+              labels="broken link, non-developer, help-pages"
             fi
 
             # Create issue body
@@ -178,3 +193,15 @@ jobs:
               break
             fi
           done < <(jq -c '.[]' reformatted_broken_links.json)
+
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [check-links]
+    if: always()
+    steps:
+      - name: Clean up
+        run: |
+          rm -f lychee_report.json reformatted_broken_links.json issue.md
+          rm -rf .lycheecache
+          echo "Cleanup complete."
