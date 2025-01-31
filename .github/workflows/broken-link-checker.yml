@@ -108,12 +108,12 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
-    if: ${{ steps.lychee.outputs.broken_links == 'true' }}
+    if: ${{ env.broken_links == 'true' }}
     steps:
       - name: Run Create Issues Job
         uses: ./.github/actions/create-issues
         with:
-          GH_TOKEN: ${{ env.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
           test_mode: ${{ env.test_mode }}
           create_issues: ${{ env.create_issues }}
           broken_links: ${{ env.broken_links }}
