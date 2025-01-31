@@ -186,7 +186,7 @@ jobs:
 
             echo "DEBUG: test_mode=$test_mode"
             echo "DEBUG: max_test_issues=$max_test_issues"
-            if [[ "$test_mode" == "true && "$issue_count" -ge "$max_test_issues" ]]; then
+            if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode active. Stopping after $issue_count issue(s)."
               exit 0  # Ensure clean exit
             fi
