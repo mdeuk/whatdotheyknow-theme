@@ -170,7 +170,7 @@ jobs:
             file_list=""
             while read -r file; do
               file_path=$(echo "$file" | xargs)  # Trim spaces
-              file_link="[📄 $file_path](${{github.repositoryUrl}}/blob/master/$file_path)"
+              file_link="[📄 $file_path](https://www.github.com/${{github.repository}}/blob/master/$file_path)"
               file_list+="- $file_link"$'\n'
             done <<< "$(echo "$affected_files" | jq -r '.[]')"
           
