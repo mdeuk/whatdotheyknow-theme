@@ -64,7 +64,7 @@ jobs:
           if [ -s reformatted_broken_links.json ] && [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
-              echo "broken_links_output=$(cat reformatted_broken_links.json)" >> $GITHUB_ENV
+              echo "broken_links_output=$(cat reformatted_broken_links.json | jq -c .)" >> $GITHUB_ENV
           else
               echo "broken_links=false" >> $GITHUB_ENV
               echo "broken_links=false" >> $GITHUB_OUTPUT
