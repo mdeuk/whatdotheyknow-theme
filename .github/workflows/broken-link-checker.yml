@@ -73,15 +73,23 @@ jobs:
       - name: Process Lychee Output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            jq -r '.error_map | to_entries | map({file: .key, url: .value[].url, status: .value[].status}) | group_by(.url) | map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)})' lychee_report.json | jq -s . > reformatted_broken_links.json        else
+            jq -r '
+              .error_map | to_entries |
+              map({file: .key, url: .value[].url, status: .value[].status}) |
+              group_by(.url) |
+              map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)})' \
+              lychee_report.json | jq -s . > reformatted_broken_links.json
+          else
             echo "No broken links found or lychee_report.json is empty."
+            echo "[]" > reformatted_broken_links.json  # Ensure an empty JSON array is created
           fi
-
-          if [ -s reformatted_broken_links.json ]; then
+      
+          if [ -s reformatted_broken_links.json ] && [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
             echo "broken_links=true" >> $GITHUB_ENV
           else
             echo "broken_links=false" >> $GITHUB_ENV
           fi
+
 
       - name: Save lychee cache
         uses: actions/cache/save@v4
