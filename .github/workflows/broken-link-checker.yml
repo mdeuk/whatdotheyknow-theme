@@ -95,43 +95,60 @@ jobs:
           path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
-      - name: Create Issues for Each Unique Broken Link (if not already open)
+      - name: Create (or update) Issues for Each Unique Broken Link
         if: ${{ (env.test_mode == 'false' && env.create_issues == 'true' && env.broken_links == 'true') || (env.test_mode == 'true' && env.create_issues == 'true' && env.broken_links == 'true') }}
         run: |
-          jq -c '.[]' reformatted_broken_links.json | while read -r link; do
-          url=$(echo "$link" | jq -r '.url')
-          status_code=$(echo "$link" | jq -r '.status | .code')
-          status_text=$(echo "$link" | jq -r '.status | .text')
-          affected_files=$(echo "$link" | jq -r '.files | join(", ")')
-        
-          echo "Processing $url (Status: $status_code $status_text) in files: $affected_files"
-        
-          existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=broken%20link" | \
-          jq -r '.[] | select(.title | contains("'"$url"'")) | .title')
-        
-          if [[ ! -z "$existing_issue" ]]; then
-            echo "Issue already exists for $url. Skipping..."
-            continue
-          fi
-        
-          if echo "$affected_files" | grep -q "lib/views/help/"; then
-            labels="broken link, non-developer, help-pages"
-          else
+          max_test_issues=1  # Adjust this if we want to allow more issues in test mode
+          issue_count=0
+          
+          while read -r line; do
+            url=$(echo "$line" | jq -r '.url')
+            status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
+            status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
+            affected_files=$(echo "$line" | jq -r '.files | join(", ")')
+          
+            # Define issue title
+            issue_title="Broken Link: $url"
+          
+            # Search for an existing issue with the same URL
+            existing_issue=$(gh issue list --state open --label "broken link" --json number,title \
+              | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
+          
+            # Assign labels (add "help-pages" if needed)
             labels="broken link, non-developer"
-          fi  
-        
-          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/vnd.github.v3+json" \
-               https://api.github.com/repos/${{ github.repository }}/issues \
-               -d '{
-             "title": "Broken Link: '"$url"'",
-             "body": "The following `.erb` files contain a broken link to **'"$url"'**:\n\n'"$affected_files"'\n\nError: '"$status_code"' '"$status_text"'",
-             "labels": ['"$labels"']
-               }'
-        
-          if [[ "$env.test_mode" == "true" ]]; then
-            break
-          fi
-          done
+            if echo "$affected_files" | grep -q "lib/views/help/"; then
+              labels="broken link, non-developer, help-pages"
+            fi
+          
+            # Create issue body
+            echo "**Broken Link:** [$url]($url)" > issue.md
+            echo "" >> issue.md
+            echo "**Status Code:** $status_code ($status_text)" >> issue.md
+            echo "**Affected Files:** $affected_files" >> issue.md
+          
+            if [[ -n "$existing_issue" ]]; then
+              echo "Issue already exists (#$existing_issue). Adding a comment..."
+              
+              # Add a comment to the existing issue
+              gh issue comment "$existing_issue" --body "🔄 **Update:** Broken link still exists. See affected files:\n\n$affected_files"
+            
+            else
+              echo "Creating new issue for $url"
+          
+              # Create a new issue with proper labels
+              gh issue create \
+                --title "$issue_title" \
+                --body-file issue.md \
+                --label "$labels"
+            fi
+          
+            # Increment the counter
+            ((issue_count++))
+          
+            # Stop processing if test mode is enabled and max issues reached
+            if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
+              echo "Test mode active. Stopping after processing $issue_count issue(s)."
+              break
+            fi
+          done < reformatted_broken_links.json
+          
