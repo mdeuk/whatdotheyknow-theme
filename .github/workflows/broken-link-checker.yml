@@ -179,8 +179,8 @@ jobs:
 
             ((issue_count++))
 
-            if [[ "${{ env.test_mode }}" == "true" && "$issue_count" -ge "${{ env.max_test_issues }}" ]]; then
-              echo "Test mode active. Stopping after $issue_count issue(s)."
-              break
-            fi
+          if [[ "${{ env.test_mode }}" == "true" && "$issue_count" -ge "${{ env.max_test_issues }}" ]]; then
+            echo "Test mode active. Stopping after $issue_count issue(s)."
+            exit 0  # Ensure clean exit
+          fi
           done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
