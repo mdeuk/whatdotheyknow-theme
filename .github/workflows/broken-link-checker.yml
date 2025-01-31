@@ -64,9 +64,11 @@ jobs:
           if [ -s reformatted_broken_links.json ] && [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
+              echo "broken_links_output=$(cat reformatted_broken_links.json)" >> $GITHUB_ENV
           else
               echo "broken_links=false" >> $GITHUB_ENV
               echo "broken_links=false" >> $GITHUB_OUTPUT
+              echo "broken_links_output=[]" >> $GITHUB_ENV
           fi
 
       - name: Archive raw output
@@ -102,6 +104,14 @@ jobs:
             echo "Issue creation disabled. Skipping issue creation."
             exit 0
           fi
+
+      - name: Reticulating splines of json
+        run: |
+          if ${{needs.check-links.outputs.broken_links_output}}.length == 0; then
+            echo "No broken links found. Skipping issue creation."
+            exit 0
+          fi
+          echo "${{needs.check-links.outputs.broken_links_output}}" > reformatted_broken_links.json
 
       - name: Create Issues for Each Broken Link
         run: |
