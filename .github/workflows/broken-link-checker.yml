@@ -108,7 +108,7 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
-    if: ${{ needs.check-links.outputs.broken_links == 'true' }}
+    if: ${{ needs.check-links.outputs.broken_links == true }}  # Check the output from the previous job
     steps:
       - name: Create Issues for Each Broken Link
         run: |
