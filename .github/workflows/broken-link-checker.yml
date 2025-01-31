@@ -64,11 +64,9 @@ jobs:
           if [ -s reformatted_broken_links.json ] && [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
-              echo "broken_links_output=$(cat reformatted_broken_links.json | jq -c .)" >> $GITHUB_ENV
           else
               echo "broken_links=false" >> $GITHUB_ENV
               echo "broken_links=false" >> $GITHUB_OUTPUT
-              echo "broken_links_output=[]" >> $GITHUB_ENV
           fi
 
       - name: Upload reformatted broken links
@@ -76,6 +74,21 @@ jobs:
         if: ${{env.broken_links == 'true'}}
         with:
           name: reformatted-broken-links
+          path: reformatted_broken_links.json
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Archive raw output
+        uses: actions/upload-artifact@v4
+        if: ${{ env.test_mode == 'true' }}
+        with:
+          name: raw-output
+          path: |
+            lychee_report.json
+            reformatted_broken_links.json
+          if-no-files-found: warn
+          retention-days: 1
           
       - name: Archive raw output
         uses: actions/upload-artifact@v4
