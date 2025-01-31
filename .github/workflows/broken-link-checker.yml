@@ -155,9 +155,9 @@ jobs:
             issue_title="Broken Link: $url"
             existing_issue=$(gh issue list --state open --label "broken link" --json number,title | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
       
-            labels="broken link, non-developer"
+            labels="broken-link,non-developer"
             if echo "$affected_files" | grep -q "lib/views/help/"; then
-              labels="broken link, non-developer, help-pages"
+              labels="broken-link,non-developer,help-pages"
             fi
       
             echo "**Broken Link:** [$url]($url)" > issue.md
