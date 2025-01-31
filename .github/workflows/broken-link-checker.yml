@@ -137,12 +137,12 @@ jobs:
         run: |
           issue_count=0
           
-          if [[ ! -s reformatted_broken_links.json ]]; then
+          if [[ ! -s broken-links-artifact/reformatted_broken_links.json ]]; then
             echo "Error: reformatted_broken_links.json is empty!"
             exit 1
           fi
 
-          if ! jq empty reformatted_broken_links.json 2>/dev/null; then
+          if ! jq empty broken-links-artifact/reformatted_broken_links.json 2>/dev/null; then
             echo "Invalid JSON format!"
             exit 1
           fi
