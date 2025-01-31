@@ -107,11 +107,12 @@ jobs:
 
       - name: Reticulating splines of json
         run: |
-          if [ "$(echo '${{needs.check-links.outputs.broken_links_output}}' | jq 'length')" -eq 0 ]; then
+          if echo '${{needs.check-links.outputs.broken_links_output}}' | jq -e 'length == 0'; then
             echo "No broken links found. Skipping issue creation."
             exit 0
           fi
-          echo "${{needs.check-links.outputs.broken_links_output}}" > reformatted_broken_links.json
+          echo '${{needs.check-links.outputs.broken_links_output}}' > reformatted_broken_links.json
+
 
       - name: Create Issues for Each Broken Link
         run: |
