@@ -120,9 +120,8 @@ jobs:
           name: broken-links
           github-token: ${{ github.token }}
           path: .
-          run-id: ${{ needs.check-links.id }}
           
-          run: ls -R .
+      - run: ls -R .
 
 
       - name: Check JSON is valid
