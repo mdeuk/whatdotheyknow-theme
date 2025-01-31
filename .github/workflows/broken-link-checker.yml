@@ -145,7 +145,7 @@ jobs:
             url=$(echo "$line" | jq -r '.url')
             status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
             status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
-            affected_files=$(echo "$line" | jq -r '.files | join(", ")')
+            affected_files=$(echo "$line" | jq -r '.files | unique')
           
             if [[ -z "$url" || "$url" == "null" ]]; then
               echo "Skipping invalid entry: $line"
@@ -166,23 +166,45 @@ jobs:
               labels="broken-link,non-developer,help-pages"
             fi
           
-            echo "**Broken Link:** [$url]($url)" > issue.md
-            echo "**Status Code:** $status_code ($status_text)" >> issue.md
-            echo "**Affected Files:** $affected_files" >> issue.md
+            # Format affected files as a Markdown list with links
+            file_list=""
+            while read -r file; do
+              file_path=$(echo "$file" | xargs)  # Trim spaces
+              file_link="[📄 $file_path](https://github.com/OWNER/REPO/blob/main/$file_path)"
+              file_list+="- $file_link"$'\n'
+            done <<< "$(echo "$affected_files" | jq -r '.[]')"
+          
+            # Write issue description
+            {
+              echo "**Broken Link:** [$url]($url)"
+              echo ""
+              echo "**Status Code:** $status_code ($status_text)"
+              echo ""
+              echo "**Affected Files:**"
+              echo "$file_list"
+            } > issue.md
           
             if [[ -n "$existing_issue" ]]; then
               echo "Existing issue found: #$existing_issue"
-              gh issue comment "$existing_issue" --body "🔄 **Update:** Broken link still exists. Affected files:\n\n$affected_files"
+              gh issue comment "$existing_issue" --body "$(cat <<EOF
+          🔄 **Update:** Broken link still exists.
+          
+          **Status Code:** $status_code ($status_text)
+          
+          **Affected Files:**
+          $file_list
+          EOF
+              )" || echo "Warning: Failed to comment on issue #$existing_issue"
             else
               echo "Creating new issue for $url"
-              gh issue create --title "$issue_title" --body-file issue.md --label "$labels"
+              gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || echo "Warning: Failed to create issue."
             fi
           
             ((issue_count++))
           
             if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode active. Stopping after $issue_count issue(s)."
-              break
+              exit 0  # Clean exit in test mode
             fi
           done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
-
+          
