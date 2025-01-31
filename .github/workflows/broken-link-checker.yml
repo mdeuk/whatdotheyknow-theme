@@ -166,7 +166,7 @@ jobs:
             file_list=""
             while read -r file; do
               file_path=$(echo "$file" | xargs)  # Trim spaces
-              file_link="[📄 $file_path](https://github.com/OWNER/REPO/blob/main/$file_path)"
+              file_link="[📄 $file_path](https://github.com/${{github.repository}}/blob/master/$file_path)"
               file_list+="- $file_link"$'\n'
             done <<< "$(echo "$affected_files" | jq -r '.[]')"
             # Write issue description
@@ -194,9 +194,9 @@ jobs:
             else
               echo "Creating new issue for $url"
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || echo "Warning: Failed to create issue."
+              ((issue_count++))
             fi
-      
-            ((issue_count++))
+            
       
             if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode active. Stopping after $issue_count issue(s)."
