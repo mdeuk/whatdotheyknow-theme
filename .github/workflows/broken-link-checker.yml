@@ -139,5 +139,4 @@ jobs:
           if [[ "$env.test_mode" == "true" ]]; then
             break
           fi
-        done
-
+          done
