@@ -100,12 +100,31 @@ jobs:
         run: |
           max_test_issues=1  # Adjust this if we want to allow more issues in test mode
           issue_count=0
+
+          # Ensure file exists and is not empty
+          if [[ ! -s reformatted_broken_links.json ]]; then
+            echo "Error: reformatted_broken_links.json is empty or missing!"
+            exit 1
+          fi
           
+          # Validate JSON format
+          if ! jq empty reformatted_broken_links.json 2>/dev/null; then
+            echo "Error: reformatted_broken_links.json contains invalid JSON!"
+            exit 1
+          fi
+              
+          # Start processing broken links
           while read -r line; do
             url=$(echo "$line" | jq -r '.url')
             status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
             status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
             affected_files=$(echo "$line" | jq -r '.files | join(", ")')
+          
+            # Check if URL is valid
+            if [[ -z "$url" || "$url" == "null" ]]; then
+              echo "Skipping invalid entry: $line"
+              continue
+            fi  
           
             # Define issue title
             issue_title="Broken Link: $url"
