@@ -168,9 +168,9 @@ jobs:
             safe_url=$(echo "$url" | sed 's/[.[\*^$(){}?+|#]/\\&/g')
             
             echo "Checking for existing issues related to: $safe_url"
-            gh issue list --state open --label "broken link" --json number,title | jq '.'
+            gh issue list --state open --label "broken-link" --json number,title | jq '.'
             
-            existing_issue=$(gh issue list --state open --label "broken link" --json number,title | jq -r --arg url "$safe_url" '
+            existing_issue=$(gh issue list --state open --label "broken-link" --json number,title | jq -r --arg url "$safe_url" '
               .[] | select(.title | test($url; "i")) | .number' | head -n 1
             ')
 
