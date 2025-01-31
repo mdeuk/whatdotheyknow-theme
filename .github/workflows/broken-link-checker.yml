@@ -1,8 +1,10 @@
 name: Check Broken Links
 env:
   test_mode: false
+  max_test_issues: 1
   create_issues: true
   broken_links: false
+  GH_TOKEN: ${{ github.token }}
 
 on:
   schedule:
@@ -17,6 +19,10 @@ on:
         type: boolean
         description: Create issues for broken links?
         default: false
+      howManyIssues:
+        type: number
+        description: Maximum number of issues to create in test mode
+        default: 1
 
 jobs:
   check-links:
@@ -45,6 +51,9 @@ jobs:
           else
             echo "create_issues=false" >> $GITHUB_ENV
           fi
+
+          # Set the maximum number of issues to create in test mode
+          echo "max_test_issues=${{ github.event.inputs.howManyIssues }}" >> $GITHUB_ENV
 
       - name: Restore lychee cache
         id: restore-cache
@@ -98,7 +107,7 @@ jobs:
       - name: Create (or update) Issues for Each Unique Broken Link
         if: ${{ (env.test_mode == 'false' && env.create_issues == 'true' && env.broken_links == 'true') || (env.test_mode == 'true' && env.create_issues == 'true' && env.broken_links == 'true') }}
         run: |
-          max_test_issues=1  # Adjust this if we want to allow more issues in test mode
+          ## Create issues for each unique broken link found by Lychee
           issue_count=0
 
           # Ensure file exists and is not empty
@@ -164,7 +173,7 @@ jobs:
             ((issue_count++))
 
             # Stop processing if test mode is enabled and max issues reached
-            if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
+            if [[ "$test_mode" == "true" && "$issue_count" -ge "${{ env.max_test_issues }}" ]]; then
               echo "Test mode active. Stopping after processing $issue_count issue(s)."
               break
             fi
