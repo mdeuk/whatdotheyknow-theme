@@ -69,8 +69,7 @@ jobs:
             jq -r '
               .error_map | to_entries |
               map({file: .key, url: .value[].url, status: .value[].status}) |
-              group_by(.url) |
-              map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)})' \
+              group_by(.url) | map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)}) | .[]' \ 
               lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "No broken links found or lychee_report.json is empty."
