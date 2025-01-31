@@ -63,13 +63,6 @@ jobs:
           format: json
           fail: false  # Ensure the workflow continues even if broken links are found
 
-      - name: Archive raw output
-        uses: actions/upload-artifact@v4
-        if: ${{ env.test_mode == 'true' }}
-        with:
-          name: raw-output
-          path: lychee_report.json
-
       - name: Process Lychee Output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
@@ -90,6 +83,15 @@ jobs:
             echo "broken_links=false" >> $GITHUB_ENV
           fi
 
+      - name: Archive raw output
+        uses: actions/upload-artifact@v4
+        if: ${{ env.test_mode == 'true' }}
+        with:
+          name: raw-output
+          path: |
+            lychee_report.json
+            reformatted_broken_links.json
+          if-no-files-found: warn
 
       - name: Save lychee cache
         uses: actions/cache/save@v4
@@ -102,39 +104,40 @@ jobs:
         if: ${{ (env.test_mode == 'false' && env.create_issues == 'true' && env.broken_links == 'true') || (env.test_mode == 'true' && env.create_issues == 'true' && env.broken_links == 'true') }}
         run: |
           jq -c '.[]' reformatted_broken_links.json | while read -r link; do
-            url=$(echo "$link" | jq -r '.url')
-            status_code=$(echo "$link" | jq -r '.status.code')
-            status_text=$(echo "$link" | jq -r '.status.text')
-            affected_files=$(echo "$link" | jq -r '.files | join(", ")')
-      
-            echo "Processing $url (Status: $status_code $status_text) in files: $affected_files"
-      
-            existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=broken%20link" | \
-            jq -r '.[] | select(.title | contains("'"$url"'")) | .title')
-      
-            if [[ ! -z "$existing_issue" ]]; then
-              echo "Issue already exists for $url. Skipping..."
-              continue
-            fi
-      
-            if echo "$affected_files" | grep -q "lib/views/help/"; then
-              labels="broken link, non-developer, help-pages"
-            else
-              labels="broken link, non-developer"
-            fi
-      
-            curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Accept: application/vnd.github.v3+json" \
-                 https://api.github.com/repos/${{ github.repository }}/issues \
-                 -d '{
-               "title": "Broken Link: '"$url"'",
-               "body": "The following `.erb` files contain a broken link to **'"$url"'**:\n\n'"$affected_files"'\n\nError: '"$status_code"' '"$status_text"'",
-               "labels": ['"$labels"']
-                 }'
-      
-            if [[ "$env.test_mode" == "true" ]]; then
-              break
-            fi
-          done
+          url=$(echo "$link" | jq -r '.url')
+          status_code=$(echo "$link" | jq -r '.status | .code')
+          status_text=$(echo "$link" | jq -r '.status | .text')
+          affected_files=$(echo "$link" | jq -r '.files | join(", ")')
+        
+          echo "Processing $url (Status: $status_code $status_text) in files: $affected_files"
+        
+          existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=broken%20link" | \
+          jq -r '.[] | select(.title | contains("'"$url"'")) | .title')
+        
+          if [[ ! -z "$existing_issue" ]]; then
+            echo "Issue already exists for $url. Skipping..."
+            continue
+          fi
+        
+          if echo "$affected_files" | grep -q "lib/views/help/"; then
+            labels="broken link, non-developer, help-pages"
+          else
+            labels="broken link, non-developer"
+          fi  
+        
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/repos/${{ github.repository }}/issues \
+               -d '{
+             "title": "Broken Link: '"$url"'",
+             "body": "The following `.erb` files contain a broken link to **'"$url"'**:\n\n'"$affected_files"'\n\nError: '"$status_code"' '"$status_text"'",
+             "labels": ['"$labels"']
+               }'
+        
+          if [[ "$env.test_mode" == "true" ]]; then
+            break
+          fi
+        done
+
