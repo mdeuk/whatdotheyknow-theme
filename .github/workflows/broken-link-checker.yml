@@ -24,7 +24,8 @@ jobs:
   check-links:
     name: Check for Broken Links
     runs-on: ubuntu-latest
-
+    outputs:
+      broken_links: ${{ steps.process_output.outputs.broken_links }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,6 +55,7 @@ jobs:
           fail: false
 
       - name: Process Lychee Output
+        id: process_output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '.error_map | to_entries | map({file: .key, url: .value[].url, status: .value[].status}) | group_by(.url) | map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)}) | .[]' lychee_report.json | jq -s . > reformatted_broken_links.json
@@ -68,15 +70,11 @@ jobs:
               echo "broken_links=false" >> $GITHUB_ENV
               echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Upload reformatted broken links
+      - name: Upload broken links
         uses: actions/upload-artifact@v4
-        if: ${{env.broken_links == 'true'}}
         with:
           name: broken-links
           path: reformatted_broken_links.json
-          compression-level: 0
-          if-no-files-found: ignore
           retention-days: 1
 
       - name: Archive raw output
@@ -101,37 +99,27 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
+    if: ${{ needs.check-links.outputs.broken_links == 'true' }}
     steps:
-      - name: Do we need to create issues?
-        run: |
-          if [[ "${{needs.check-links.outputs.broken_links}}" == "false" ]]; then
-            echo "No broken links found. Skipping issue creation."
-            exit 0
-          fi
-
-          if [[ "${{needs.check-links.outputs.create_issues}}" == "false" ]]; then
-            echo "Issue creation disabled. Skipping issue creation."
-            exit 0
-          fi
-
       - name: Reticulating splines of JSON
         uses: actions/download-artifact@v4
         with:
           name: broken-links
-          github-token: ${{ github.token }}
-          path: .
-          
-      - run: ls -R .
+          path: broken-links-artifact
 
+      - name: Debug JSON Content
+        run: |
+          ls -R broken-links-artifact
+          cat broken-links-artifact/reformatted_broken_links.json || echo "File not found!"
 
       - name: Check JSON is valid
         run: |
-          if [[ ! -s reformatted_broken_links.json ]]; then
-            echo "Error: reformatted_broken_links.json is empty!"
+          if [[ ! -s broken-links-artifact/reformatted_broken_links.json ]]; then
+            echo "Error: broken-links-artifact/reformatted_broken_links.json is empty!"
             exit 1
           fi
 
-          if ! jq empty reformatted_broken_links.json 2>/dev/null; then
+          if ! jq empty broken-links-artifact/reformatted_broken_links.json 2>/dev/null; then
             echo "Invalid JSON format!"
             exit 1
           fi
