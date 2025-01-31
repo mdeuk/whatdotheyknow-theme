@@ -142,9 +142,9 @@ jobs:
               | jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
 
             # Assign labels (add "help-pages" if needed)
-            labels="broken link, non-developer"
+            labels="broken-link, non-developer"
             if echo "$affected_files" | grep -q "lib/views/help/"; then
-              labels="broken link, non-developer, help-pages"
+              labels="broken-link, non-developer, help-pages"
             fi
 
             # Create issue body
