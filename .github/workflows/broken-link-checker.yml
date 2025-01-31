@@ -65,7 +65,7 @@ jobs:
 
       - name: Archive raw output
         uses: actions/upload-artifact@v4
-        if: env.test_mode == true
+        if: ${{ env.test_mode == 'true' }}
         with:
           name: raw-output
           path: lychee_report.json
@@ -99,41 +99,42 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
       - name: Create Issues for Each Unique Broken Link (if not already open)
-        if: (env.test_mode == false && env.create_issues == true && env.broken_links == 'true') || (env.test_mode == true && env.create_issues == true && env.broken_links == 'true')
+        if: ${{ (env.test_mode == 'false' && env.create_issues == 'true' && env.broken_links == 'true') || (env.test_mode == 'true' && env.create_issues == 'true' && env.broken_links == 'true') }}
         run: |
-          while read -r line; do
-            file=$(echo "$line" | awk '{print $1}')
-            broken_link=$(echo "$line" | awk '{print $2}')
-            error_code=$(echo "$line" | awk '{print $4}')
-            error_text=$(echo "$line" | awk '{print $5}')
-            echo "Processing $broken_link in $file with error $error_code $error_text"
-            
+          jq -c '.[]' reformatted_broken_links.json | while read -r link; do
+            url=$(echo "$link" | jq -r '.url')
+            status_code=$(echo "$link" | jq -r '.status.code')
+            status_text=$(echo "$link" | jq -r '.status.text')
+            affected_files=$(echo "$link" | jq -r '.files | join(", ")')
+      
+            echo "Processing $url (Status: $status_code $status_text) in files: $affected_files"
+      
             existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=broken%20link" | \
-            jq -r '.[] | select(.title | contains("'"$broken_link"'")) | .title')
-  
+            jq -r '.[] | select(.title | contains("'"$url"'")) | .title')
+      
             if [[ ! -z "$existing_issue" ]]; then
-              echo "Issue already exists for $broken_link. Skipping..."
+              echo "Issue already exists for $url. Skipping..."
               continue
             fi
-            affected_files=$(grep -l "$broken_link" $(find lib/views -name '*.erb') | tr '\n' ',' | sed 's/,$//')
-            cat $affected_files | grep -n "$broken_link"
-            
+      
             if echo "$affected_files" | grep -q "lib/views/help/"; then
               labels="broken link, non-developer, help-pages"
             else
               labels="broken link, non-developer"
             fi
+      
             curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                  -H "Accept: application/vnd.github.v3+json" \
                  https://api.github.com/repos/${{ github.repository }}/issues \
                  -d '{
-               "title": "Broken Link: '"$broken_link"'",
-               "body": "The following `.erb` files contain a broken link to **'"$broken_link"'**:\n\n'"$affected_files"'\n\nError: '"$error_code"' '"$error_text"'",
+               "title": "Broken Link: '"$url"'",
+               "body": "The following `.erb` files contain a broken link to **'"$url"'**:\n\n'"$affected_files"'\n\nError: '"$status_code"' '"$status_text"'",
                "labels": ['"$labels"']
                  }'
-            if [ "$env.test_mode" == "true" ]; then
+      
+            if [[ "$env.test_mode" == "true" ]]; then
               break
             fi
-          done < reformatted_broken_links.json
+          done
