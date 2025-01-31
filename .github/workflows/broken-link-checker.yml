@@ -71,6 +71,12 @@ jobs:
               echo "broken_links_output=[]" >> $GITHUB_ENV
           fi
 
+      - name: Upload reformatted broken links
+        uses: actions/upload-artifact@v4
+        if: ${{env.broken_links == 'true'}}
+        with:
+          name: reformatted-broken-links
+          
       - name: Archive raw output
         uses: actions/upload-artifact@v4
         if: ${{ env.test_mode == 'true' }}
@@ -105,14 +111,23 @@ jobs:
             exit 0
           fi
 
-      - name: Reticulating splines of json
-        run: |
-          if echo '${{needs.check-links.outputs.broken_links_output}}' | jq -e 'length == 0'; then
-            echo "No broken links found. Skipping issue creation."
-            exit 0
-          fi
-          echo '${{needs.check-links.outputs.broken_links_output}}' > reformatted_broken_links.json
+      - name: Reticulating splines of JSON
+        uses: actions/download-artifact@v4
+        with:
+          name: reformatted-broken-links
+          path: .
 
+      - name: Check JSON is valid
+        run: |
+          if [[ ! -s reformatted_broken_links.json ]]; then
+            echo "Error: reformatted_broken_links.json is empty!"
+            exit 1
+          fi
+
+          if ! jq empty reformatted_broken_links.json 2>/dev/null; then
+            echo "Invalid JSON format!"
+            exit 1
+          fi
 
       - name: Create Issues for Each Broken Link
         run: |
