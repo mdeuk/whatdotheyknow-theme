@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{env.broken_links == 'true'}}
         with:
-          name: reformatted-broken-links
+          name: broken-links
           path: reformatted_broken_links.json
           compression-level: 0
           if-no-files-found: ignore
@@ -113,15 +113,17 @@ jobs:
             echo "Issue creation disabled. Skipping issue creation."
             exit 0
           fi
+
       - name: Reticulating splines of JSON
         uses: actions/download-artifact@v4
         with:
-          name: reformatted-broken-links
+          name: broken-links
           github-token: ${{ github.token }}
           path: .
           run-id: ${{ needs.check-links.id }}
           
-      - run: ls -R .
+          run: ls -R .
+
 
       - name: Check JSON is valid
         run: |
