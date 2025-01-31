@@ -108,8 +108,26 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
-    if: ${{ needs.check-links.outputs.broken_links == true }}  # Correctly check output
+     # Correctly check output
     steps:
+      - env:
+          broken_links: ${{needs.check-links.outputs.broken_links}}
+          test_mode: ${{needs.check-links.outputs.test_mode}}
+          max_test_issues: ${{needs.check-links.outputs.max_test_issues}}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Do we need to create issues?
+        run: |
+          if [[ "$broken_links" == "false" ]]; then
+            echo "No broken links found. Skipping issue creation."
+            exit 0
+          fi
+
+          if [[ "$create_issues" == "false" ]]; then
+            echo "Issue creation disabled. Skipping issue creation."
+            exit 0
+          fi
+
       - name: Create Issues for Each Broken Link
         run: |
           issue_count=0
