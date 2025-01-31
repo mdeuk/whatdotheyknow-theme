@@ -101,6 +101,10 @@ jobs:
     needs: check-links
     if: ${{ needs.check-links.outputs.broken_links == 'true' }}
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
       - name: Reticulating splines of JSON
         uses: actions/download-artifact@v4
         with:
@@ -123,9 +127,6 @@ jobs:
             echo "Invalid JSON format!"
             exit 1
           fi
-          
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Debug JSON Before Issue Creation
         run: |
