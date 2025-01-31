@@ -104,6 +104,11 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set parameters
+        run: |
+          echo "TEST_MODE=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+          echo "MAX_TEST_ISSUES=${{ github.event.inputs.howManyIssues }}" >> $GITHUB_ENV
         
       - name: Reticulating splines of JSON
         uses: actions/download-artifact@v4
@@ -179,8 +184,11 @@ jobs:
 
             ((issue_count++))
 
-          if [[ "${{ env.test_mode }}" == "true" && "$issue_count" -ge "${{ env.max_test_issues }}" ]]; then
-            echo "Test mode active. Stopping after $issue_count issue(s)."
-            exit 0  # Ensure clean exit
-          fi
+            echo "DEBUG: TEST_MODE=$TEST_MODE"
+            echo "DEBUG: MAX_TEST_ISSUES=$MAX_TEST_ISSUES"
+            if [[ "$TEST_MODE" == "true" && "$issue_count" -ge "$MAX_TEST_ISSUES" ]]; then
+              echo "Test mode active. Stopping after $issue_count issue(s)."
+              exit 0  # Ensure clean exit
+            fi
+
           done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
