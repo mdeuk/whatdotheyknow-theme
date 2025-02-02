@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '45 21 * * SUN'
+    - cron: '25 22 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -159,10 +159,10 @@ jobs:
               echo "$file_list"
             } > issue.md
 
-            [[ "$affected_files" != *"lib/views/help/"* ]] {
+            if [[ "$affected_files" != *"lib/views/help/"* ]]; then
               echo "----"
               echo "If this file _should not_ be included in the list of affected files, please update the ignore list in the check workflow."
-            } >> issue.md
+            fi >> issue.md
             
             if [[ -n "$existing_issue" ]]; then
               {
