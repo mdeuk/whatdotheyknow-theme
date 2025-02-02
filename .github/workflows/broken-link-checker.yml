@@ -144,7 +144,7 @@ jobs:
             {
               echo "**Broken Link:** [$url_safe]($url_safe)"
               echo ""
-              echo "**Status Code:** `$status_code` _$status_text_"
+              echo "**Status Code:** \`$status_code\` _${status_text}_"
               echo ""
               echo "**Affected Files:**"
               echo "$file_list"
@@ -154,21 +154,23 @@ jobs:
               {
                 echo "🔄 **Update:** Broken link still exists. 😩"
                 echo ""
-                echo "**Status Code:** `$status_code` _$status_text_"
+                echo "**Status Code:** \`$status_code\` _${status_text}_"
                 echo ""
                 echo "**Affected Files:**"
                 echo "$file_list"
               } > comment.md
 
-              echo "Updating existing issue #$existing_issue"
+              set +e
+
               gh issue comment "$existing_issue" --body-file comment.md || {
                 echo "Warning: Failed to comment on issue #$existing_issue"
-                continue  # Ensure script continues even if commenting fails
+                echo "Continuing..."
+                continue
               }
             else
-              echo "Creating new issue for: $url"
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || {
                 echo "Warning: Failed to create issue."
+                echo "Continuing..."
                 continue
               }
             fi
