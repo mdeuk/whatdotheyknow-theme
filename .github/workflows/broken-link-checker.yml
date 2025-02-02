@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '55 20 * * SUN'
+    - cron: '05 21 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -155,9 +155,14 @@ jobs:
               echo ""
               echo "**Status Code:** \`$status_code\` _${status_text}_"
               echo ""
-              echo "**Affected Files:**"
+              echo "## Affected Files"
               echo "$file_list"
             } > issue.md
+
+            [[ "$affected_files" !== *"lib/views/help/"* ]] {
+              echo "----"
+              echo "If this file should not be included in the list of affected files, please update the ignore list in the check workflow."
+              } >> issue.md
             
             if [[ -n "$existing_issue" ]]; then
               {
@@ -165,7 +170,7 @@ jobs:
                 echo ""
                 echo "**Status Code:** \`$status_code\` _${status_text}_"
                 echo ""
-                echo "**Affected Files:**"
+                echo "## Affected Files"
                 echo "$file_list"
               } > comment.md
               
@@ -194,4 +199,3 @@ jobs:
           done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
           
           exit 0
-
