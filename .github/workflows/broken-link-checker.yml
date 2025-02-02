@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '50 14 * * 0'
+    - cron: '50 15 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -97,6 +97,7 @@ jobs:
         with:
           path: .lycheecache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          restore-keys: ${{ steps.restore-cache.outputs.cache-secondary-key }}
           
   create-issues:
     name: Create Issues for Broken Links
@@ -187,7 +188,7 @@ jobs:
               
             if [[ -n "$existing_issue" ]]; then
               echo "Existing issue found for $url: #$existing_issue"
-              gh issue comment "$existing_issue" --body "$(cat <<EOF
+                            gh issue comment "$existing_issue" --body "$(cat <<EOF
               🔄 **Update:** Broken link still exists.
               
               **Status Code:** $status_code ($status_text)
@@ -195,15 +196,14 @@ jobs:
               **Affected Files:**
               $file_list
               EOF
-              )" || echo "Warning: Failed to comment on issue #$existing_issue"
-              exit 0;
+                            )" || echo "Warning: Failed to comment on issue #$existing_issue"
+              continue;
             else
               echo "Creating new issue for $url"
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || echo "Warning: Failed to create issue."
               ((issue_count++))
               echo "Created issue, issue count: $issue_count"
             fi
-            
           
             if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode active. Stopping after $issue_count issue(s)."
