@@ -81,7 +81,7 @@ jobs:
             --exclude-path .lycheeignore 
             --exclude whatdotheyknow.com
             --include-fragments 
-            --include .lycheecheck 
+            .lycheecheck 
           output: lychee_report.json
           format: json
           fail: false
