@@ -108,7 +108,7 @@ jobs:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
     needs: check-links
-    if: ${{ needs.check-links.outputs.broken_links == 'true' && create_issues == 'true' }}
+    if: ${{ needs.check-links.outputs.broken_links == 'true' && env.create_issues == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
