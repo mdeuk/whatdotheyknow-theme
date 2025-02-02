@@ -139,7 +139,7 @@ jobs:
             labels="broken-link,non-developer"
             [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
 
-            file_list=$(jq -r '.files | map("- [📄 \(. | gsub(" "; "%20"))](https://github.com/${{github.repository}}/blob/master/\(.)") | join("\n")' <<< "$line")
+            file_list=$(jq -r '.files | map("- [📄 \(. | gsub(" "; "%20"))](https://github.com/${{github.repository}}/blob/master/\(.)")") | join("\n")' <<< "$line")
 
             {
               echo "**Broken Link:** [$url_safe]($url_safe)"
@@ -154,7 +154,7 @@ jobs:
               {
                 echo "🔄 **Update:** Broken link still exists. 😩"
                 echo ""
-                echo "**Status Code:** $status_code ($status_text)"
+                echo "**Status Code:** `$status_code` __$status_text__"
                 echo ""
                 echo "**Affected Files:**"
                 echo "$file_list"
