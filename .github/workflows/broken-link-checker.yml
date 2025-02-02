@@ -56,8 +56,9 @@ jobs:
       - name: Specify files to check
         run: |
           touch .lycheecheck
-          find lib/views -name '*.erb' > .lycheecheck
-          touch "https://empty-band-cf22.demonuk.workers.dev/" > .lycheecheck
+          echo "https://home.mde.scot/httpbin/uuid/" > .lycheecheck
+          echo "https://home.mde.scot/httpbin/uuid404" > .lycheecheck
+          find lib/views -name '*.erb' > .lycheecheck   
         continue-on-error: true
 
       - name: Specify files to ignore
