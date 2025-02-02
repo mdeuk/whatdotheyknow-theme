@@ -78,10 +78,10 @@ jobs:
             --quiet 
             --no-progress 
             --user-agent '${{github.repository}}' 
-            --include-fragments 
-            --include .lycheecheck 
             --exclude-path .lycheeignore 
             --exclude whatdotheyknow.com
+            --include-fragments 
+            --include .lycheecheck 
           output: lychee_report.json
           format: json
           fail: false
