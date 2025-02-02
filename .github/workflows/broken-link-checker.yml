@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '50 15 * * SUN'
+    - cron: '07 16 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -91,13 +91,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Save lychee cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: .lycheecache
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
-          restore-keys: ${{ steps.restore-cache.outputs.cache-secondary-key }}
+- name: Save lychee cache
+  uses: actions/cache/save@v4
+  if: always()
+  with:
+    path: .lycheecache
+    key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+
           
   create-issues:
     name: Create Issues for Broken Links
@@ -188,25 +188,28 @@ jobs:
               
             if [[ -n "$existing_issue" ]]; then
               echo "Existing issue found for $url: #$existing_issue"
-                            gh issue comment "$existing_issue" --body "$(cat <<EOF
-              🔄 **Update:** Broken link still exists.
-              
-              **Status Code:** $status_code ($status_text)
-              
-              **Affected Files:**
-              $file_list
-              EOF
-                            )" || echo "Warning: Failed to comment on issue #$existing_issue"
-              continue;
+              gh issue comment "$existing_issue" --body "$(cat << 'EOF'
+            🔄 **Update:** Broken link still exists.
+
+            **Status Code:** $status_code ($status_text)
+
+            **Affected Files:**
+            EOF
+            $file_list
+            )" || echo "Warning: Failed to comment on issue #$existing_issue"
+
+              ((issue_count++))
             else
               echo "Creating new issue for $url"
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || echo "Warning: Failed to create issue."
               ((issue_count++))
-              echo "Created issue, issue count: $issue_count"
             fi
-          
+
+            echo "Created issue, issue count: $issue_count"
+
             if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode active. Stopping after $issue_count issue(s)."
               exit 0;
             fi
+
           done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
