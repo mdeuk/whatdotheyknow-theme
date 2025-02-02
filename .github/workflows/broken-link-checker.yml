@@ -53,18 +53,24 @@ jobs:
           gh cache delete cache-lychee-broken-links || echo "Cache may not exist, continuing..."
         continue-on-error: true
 
+      - name: Specify files to check
+        run: |
+          touch .lycheecheck
+          find lib/views -name '*.erb' > .lycheecheck
+          touch "https://empty-band-cf22.demonuk.workers.dev/" > .lycheecheck
+        continue-on-error: true
+
       - name: Specify files to ignore
         run: |
-          touch .lycheeignore
-          echo "lib/views/public_body/_more_info.html.erb" >> .lycheeignore
-          echo "whatdotheyknow.com" > .lycheeignore
+          touch .lychee_ignore
+          echo "lib/views/public_body/_more_info.html.erb" > .lycheeignore
         continue-on-error: true
 
       - name: Run Lychee to Check Links
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --exclude-path .lycheeignore --exclude whatdotheyknow.com $(find lib/views -name '*.erb')"
+          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}}' --include-fragments --include .lycheecheck --exclude-path .lycheeignore --exclude whatdotheyknow.com"
           output: lychee_report.json
           format: json
           fail: false
