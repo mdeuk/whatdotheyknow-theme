@@ -154,7 +154,7 @@ jobs:
               {
                 echo "🔄 **Update:** Broken link still exists. 😩"
                 echo ""
-                echo "**Status Code:** `$status_code` __$status_text__"
+                echo "**Status Code:** `$status_code` _$status_text_"
                 echo ""
                 echo "**Affected Files:**"
                 echo "$file_list"
