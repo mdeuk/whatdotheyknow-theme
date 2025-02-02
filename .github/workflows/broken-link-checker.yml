@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '05 21 * * SUN'
+    - cron: '45 21 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -63,7 +63,7 @@ jobs:
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}}' --include-fragments --exclude-path .lycheeignore --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
+          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --include-fragments --exclude-path .lycheeignore --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
           output: lychee_report.json
           format: json
           fail: false
@@ -159,10 +159,10 @@ jobs:
               echo "$file_list"
             } > issue.md
 
-            [[ "$affected_files" !== *"lib/views/help/"* ]] {
+            [[ "$affected_files" != *"lib/views/help/"* ]] {
               echo "----"
-              echo "If this file should not be included in the list of affected files, please update the ignore list in the check workflow."
-              } >> issue.md
+              echo "If this file _should not_ be included in the list of affected files, please update the ignore list in the check workflow."
+            } >> issue.md
             
             if [[ -n "$existing_issue" ]]; then
               {
