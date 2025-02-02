@@ -1,13 +1,13 @@
-name: Check Broken Links
+name: Check Broken Links in help pages
 env:
   GH_TOKEN: ${{ github.token }}
-  test_mode: true
+  test_mode: false
   create_issues: true
   max_test_issues: 5
 
 on:
   schedule:
-    - cron: '15 20 * * SUN'
+    - cron: '55 20 * * SUN'
   workflow_dispatch:
     inputs:
       testMode:
@@ -25,7 +25,7 @@ on:
 
 jobs:
   check-links:
-    name: Check for Broken Links
+    name: Check for Broken Links in ERB files
     runs-on: ubuntu-latest
     outputs:
       broken_links: ${{ steps.process_output.outputs.broken_links }}
@@ -48,7 +48,7 @@ jobs:
           key: cache-lychee-broken-links
           restore-keys: cache-lychee-
 
-      - name: Delete existing lychee cache
+      - name: Delete existing lychee cache object
         run: |
           gh cache delete cache-lychee-broken-links || echo "Cache may not exist, continuing..."
         continue-on-error: true
@@ -125,7 +125,7 @@ jobs:
             exit 1
           fi
 
-      - name: Create Issues for Each Broken Link
+      - name: Create (or update) issues for each broken link
         run: |
           set +e  # Do not exit immediately on error
           issue_count=0
