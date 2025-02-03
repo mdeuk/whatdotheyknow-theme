@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xmlstarlet python3-pip
-          pip3 install thefuzz
+          pip3 install rapidfuzz lxml jq
 
       - name: Check run mode
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -133,47 +133,56 @@ jobs:
               echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Fetch Sitemap and Match URLs for ico.org.uk
+       - name: Fetch Sitemap and Match URLs for ico.org.uk
         run: |
-          # Fetch the sitemap
           echo "Fetching the sitemap..."
           curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
           
-          # Ensure sitemap is valid
           if [ ! -s sitemap.xml ]; then
             echo "Error: Sitemap not fetched or empty"
             exit 1
           fi
-          
-          # Extract URLs containing "ico.org.uk"
+      
           echo "Extracting URLs from the sitemap..."
           xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
-          
-          # Ensure sitemap URLs were extracted
+      
           if [ ! -s ico_sitemap_urls.txt ]; then
             echo "Error: No URLs extracted from sitemap."
             exit 1
           fi
       
-          echo "Extracted sitemap URLs:"
-          wc -l ico_sitemap_urls.txt  # Count the extracted URLs
-      
-          # Process each broken link in parallel
-          jq -c '.[]' reformatted_broken_links.json | while read -r line; do
-            url=$(echo "$line" | jq -r '.url // empty')
-            [[ -z "$url" ]] && continue
-      
-            # Find best match using fuzzy search
-            best_match=$(cat ico_sitemap_urls.txt | xargs -I {} -P 4 sh -c ' 
-              score=$(python3 -c "from thefuzz import fuzz; print(fuzz.partial_ratio(\"$0\", \"$1\"))" "$url" "{}");
-              if [ "$score" -ge 70 ]; then echo "$score {}"; fi
-            ' -- "{}" | sort -nr | head -n1 | cut -d " " -f2-)
-      
-            if [[ -n "$best_match" ]]; then
-              echo "Best match for $url: $best_match"
-              jq --arg new_url "$best_match" '.suggestions += [$new_url]' <<< "$line"
-            fi
-          done
+          python3 - <<EOF
+          import json
+          from rapidfuzz import process
+          
+          # Load broken URLs from JSON
+          with open("reformatted_broken_links.json") as f:
+              broken_links = json.load(f)
+          
+          # Load sitemap URLs
+          with open("ico_sitemap_urls.txt") as f:
+              sitemap_urls = [line.strip() for line in f.readlines()]
+          
+          threshold = 70
+          for link in broken_links:
+              broken_url = link.get("url", "")
+              if not broken_url:
+                  continue
+          
+              candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
+          
+              if candidates:
+                  best_match, score = process.extractOne(broken_url, candidates, score_cutoff=threshold)
+                  if best_match:
+                      print(f"Best match for {broken_url}: {best_match} (Score: {score})")
+                      link["suggestions"] = link.get("suggestions", []) + [best_match]
+          
+          with open("reformatted_broken_links.json", "w") as f:
+              json.dump(broken_links, f, indent=2)
+          
+          print("Matching complete.")
+          EOF
+
       
             - name: Upload broken links
               uses: actions/upload-artifact@v4
