@@ -169,14 +169,18 @@ jobs:
               if not broken_url:
                   continue
           
-              candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
+          candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
           
-              if candidates:
-                  best_match, score, _ = process.extractOne(broken_url, candidates, score_cutoff=threshold)
-                  if best_match:
-                      print(f"Best match for {broken_url}: {best_match} (Score: {score})")
-                      link["suggestions"] = link.get("suggestions", []) + [best_match]
+          if candidates:
+              best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
           
+              if best_result:  # Ensure a match exists before unpacking
+                  best_match, score = best_result[:2]  # Unpack safely
+                  print(f"Best match for {broken_url}: {best_match} (Score: {score})")
+                  link["suggestions"] = link.get("suggestions", []) + [best_match]
+              else:
+                  print(f"No good match found for {broken_url}")
+
           with open("reformatted_broken_links.json", "w") as f:
               json.dump(broken_links, f, indent=2)
           
