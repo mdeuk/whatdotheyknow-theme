@@ -34,8 +34,13 @@ jobs:
       - name: Check run mode
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          echo "test_mode=${{ github.event.inputs.testMode != '' && github.event.inputs.testMode != null ? github.event.inputs.testMode : 'true' }}" >> $GITHUB_ENV
-          echo "test_mode=${{ github.event.inputs.testMode != '' && github.event.inputs.testMode != null ? github.event.inputs.testMode : 'true' }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.inputs.testMode }}" != "" ] && [ "${{ github.event.inputs.testMode }}" != "null" ]; then
+            echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+            echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_OUTPUT
+          else
+            echo "test_mode=true" >> $GITHUB_ENV
+            echo "test_mode=true" >> $GITHUB_OUTPUT
+          fi
           echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
           echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
 
