@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xmlstarlet python3-pip
-          pip3 install fuzzywuzzy
+          pip3 install thefuzz
 
       - name: Check run mode
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -135,11 +135,26 @@ jobs:
 
       - name: Fetch Sitemap and Match URLs for ico.org.uk
         run: |
-          # Fetch and parse the sitemap, filter for URLs containing "ico.org.uk"
+          # Fetch the sitemap and ensure we receive a valid response
           echo "Fetching the sitemap..."
-          curl -s https://ico.org.uk/sitemap.xml | xmlstarlet sel -t -m "//url/loc" -v . -n | grep "ico.org.uk" > ico_sitemap_urls.txt
+          curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
 
-          echo "Sitemap URLs extracted:"
+          # Debug: Ensure the sitemap file was fetched correctly
+          if [ ! -s sitemap.xml ]; then
+            echo "Error: Sitemap not fetched or empty"
+            exit 1
+          fi
+
+          # Check the content of the sitemap
+          echo "Sitemap content:"
+          cat sitemap.xml
+
+          # Parse the sitemap for URLs containing "ico.org.uk"
+          echo "Extracting URLs containing ico.org.uk from the sitemap..."
+          xmlstarlet sel -t -m "//url/loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
+
+          # Debug: Output extracted URLs
+          echo "Extracted sitemap URLs:"
           cat ico_sitemap_urls.txt
 
           # Process each broken URL
@@ -158,7 +173,7 @@ jobs:
 
               # Use Python for fuzzy matching
               score=$(python3 -c "
-              from fuzzywuzzy import fuzz
+              from thefuzz import fuzz
               print(fuzz.partial_ratio('$url', '$sitemap_url'))
               ")
               echo "Score: $score"
