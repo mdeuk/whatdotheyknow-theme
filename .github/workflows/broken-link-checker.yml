@@ -185,24 +185,44 @@ jobs:
                           ]
                   else:
                       print(f"No good match found for {broken_url}")
-            
+          # Save updated JSON
+          with open("reformatted_broken_links.json", "w") as f:
+              json.dump(broken_links, f, indent=2)
 
-              # Other sources (example: Wayback Machine, UKGWA, NRScotland)         
-              other_suggestions = {
-                  "Wayback Machine": f"https://web.archive.org/web/*/{broken_url}",
-                  "National Archives UKGWA": f"https://webarchive.nationalarchives.gov.uk/*/{broken_url}",
-                  "NRS Web Continuity": f"https://webarchive.nrscotland.gov.uk/*/{broken_url}",
-              }
+          print("Matching complete.")
+          EOF
 
-              for source, url in other_suggestions.items():
-                  if url not in link.get("suggestions", []):
-                      link["suggestions"].append(url)
-                      link["suggestions_formatted"].append(f"- [{source} Archive]({url}) (Source: {source})")
 
-              # Format existing Wayback Machine suggestion if it already exists
-              wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
-              if wayback_url:
-                  link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
+      - name: Update suggested links
+        run: |
+
+          python3 - <<EOF
+          import json
+
+          with open("reformatted_broken_links.json") as f:
+              broken_links = json.load(f)
+
+              for link in broken_links:
+                  broken_url = link.get("url", "")
+                  if not broken_url:
+                      continue
+    
+                  # Other sources (example: Wayback Machine, UKGWA, NRScotland)         
+                  other_suggestions = {
+                      "Wayback Machine": f"https://web.archive.org/web/*/{broken_url}",
+                      "National Archives UKGWA": f"https://webarchive.nationalarchives.gov.uk/*/{broken_url}",
+                      "NRS Web Continuity": f"https://webarchive.nrscotland.gov.uk/*/{broken_url}",
+                  }
+    
+                  for source, url in other_suggestions.items():
+                      if url not in link.get("suggestions", []):
+                          link["suggestions"].append(url)
+                          link["suggestions_formatted"].append(f"- [{source} Archive]({url}) (Source: {source})")
+    
+                  # Format existing Wayback Machine suggestion if it already exists
+                  wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
+                  if wayback_url:
+                      link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
 
           # Save updated JSON
           with open("reformatted_broken_links.json", "w") as f:
@@ -329,12 +349,7 @@ jobs:
             } > issue.md
             
             # Add suggestions if available
-            suggestion_list=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map(select(test("^\\[.*\\]\\(.*\\)$") | not) | "- [🔗 \(. | gsub(" "; "%20"))](\(.))") | join("\n")' <<< "$line" | sed 's/\\//g')
-            existing_markdown_suggestions=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map(select(test("^\\[.*\\]\\(.*\\)$"))) | join("\n")' <<< "$line" | sed 's/\\//g')
-
-            if [[ -n "$existing_markdown_suggestions" ]]; then
-              suggestion_list="$existing_markdown_suggestions"$'\n'"$suggestion_list"
-            fi
+            suggestion_list=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map("- [🔗 \(. | gsub(" "; "%20"))](\(.))") | join("\n")' <<< "$line" | sed 's/\\//g')
             
             if [[ -n "$suggestion_list" ]]; then
               {
