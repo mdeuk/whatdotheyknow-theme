@@ -133,7 +133,7 @@ jobs:
               echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
 
-       - name: Fetch Sitemap and Match URLs for ico.org.uk
+      - name: Fetch Sitemap and Match URLs for ico.org.uk
         run: |
           echo "Fetching the sitemap..."
           curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
