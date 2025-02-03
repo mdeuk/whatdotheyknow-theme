@@ -149,13 +149,13 @@ jobs:
           echo "Sitemap content:"
           cat sitemap.xml
 
-          # Parse the sitemap for URLs containing "ico.org.uk"
+          # Extract URLs containing "ico.org.uk" while handling the XML namespace
           echo "Extracting URLs containing ico.org.uk from the sitemap..."
-          xmlstarlet sel -t -m "//url/loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
+          xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
 
           # Debug: Output extracted URLs
           echo "Extracted sitemap URLs:"
-          cat ico_sitemap_urls.txt
+          # cat ico_sitemap_urls.txt
 
           # Process each broken URL
           while read -r line; do
