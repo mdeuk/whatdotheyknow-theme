@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       broken_links: ${{ steps.process_output.outputs.broken_links }}
+      create_issues: ${{ steps.process_output.outputs.create_issues }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -132,7 +133,8 @@ jobs:
       - name: Set create_issues output
         id: set_outputs
         run: |
-          echo "create_issues=$env.create_issues" >> $GITHUB_OUTPUT
+          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
+          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
 
   create-issues:
     name: Create Issues for Broken Links
