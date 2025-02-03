@@ -222,6 +222,8 @@ jobs:
                   # Format existing Wayback Machine suggestion if it already exists
                   wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
                   if wayback_url:
+                      if "suggestions_formatted" not in link:
+                          link["suggestions_formatted"] = []
                       link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
 
           # Save updated JSON
