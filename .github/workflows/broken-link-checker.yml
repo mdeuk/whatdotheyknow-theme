@@ -27,11 +27,6 @@ jobs:
   check-links:
     name: Check for Broken Links in ERB files
     runs-on: ubuntu-latest
-    outputs:
-      broken_links: ${{ steps.process_output.outputs.broken_links }}
-      create_issues: ${{ steps.set_outputs.outputs.create_issues }}
-      test_mode: ${{ steps.set_outputs.outputs.test_mode }}
-      max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,8 +34,8 @@ jobs:
       - name: Check run mode
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          echo "test_mode=${{ github.event.inputs.testMode || 'true' }}" >> $GITHUB_ENV
-          echo "test_mode=${{ github.event.inputs.testMode || 'true' }}" >> $GITHUB_OUTPUT
+          echo "test_mode=${{ github.event.inputs.testMode != '' && github.event.inputs.testMode != null ? github.event.inputs.testMode : 'true' }}" >> $GITHUB_ENV
+          echo "test_mode=${{ github.event.inputs.testMode != '' && github.event.inputs.testMode != null ? github.event.inputs.testMode : 'true' }}" >> $GITHUB_OUTPUT
           echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
           echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
 
@@ -144,7 +139,12 @@ jobs:
             echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
             echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
           fi
-
+    outputs:
+      broken_links: ${{ steps.process_output.outputs.broken_links }}
+      create_issues: ${{ steps.set_outputs.outputs.create_issues }}
+      test_mode: ${{ steps.set_outputs.outputs.test_mode }}
+      max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
+      
   create-issues:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
