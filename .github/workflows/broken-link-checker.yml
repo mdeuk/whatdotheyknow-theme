@@ -71,30 +71,38 @@ jobs:
           format: json
           fail: false
 
-
       - name: Process Lychee Output
         id: process_output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '
-              def merge_suggestions(errors; suggestions):
-              reduce errors as $error ({}; .[$error.url] = $error) |
-              reduce suggestions as $suggestion (.; .[$suggestion.original].suggestion = $suggestion.suggestion // .[$suggestion.original].suggestion) |
-              to_entries | map({url: .key, status: .value.status, files: .value.files, suggestion: .value.suggestion});
-              
-              .error_map | to_entries | map({file: .key, url: .value[].url, status: .value[].status}) | group_by(.url) | map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)}) as $errors |
-              .suggestion_map | to_entries | map({file: .key, original: .value[].original, suggestion: .value[].suggestion}) as $suggestions |
-              merge_suggestions($errors; $suggestions) | .[]' lychee_report.json | jq -s . > reformatted_broken_links.json
+              . as $root |
+              $root.error_map
+              | to_entries
+              | map({ file: .key, url: .value[].url, status: .value[].status })
+              | group_by(.url)
+              | map({
+                  url: .[0].url,
+                  status: .[0].status,
+                  files: (map(.file) | unique),
+                  suggestions: (
+                    (map(.file) | unique)
+                    | map( ($root.suggestion_map[.] // []))
+                    | flatten
+                    | map(.suggestion)
+                  )
+                })
+              | .[]' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
           fi
 
           if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
-            echo "broken_links=true" >> $GITHUB_ENV
-            echo "broken_links=true" >> $GITHUB_OUTPUT
+              echo "broken_links=true" >> $GITHUB_ENV
+              echo "broken_links=true" >> $GITHUB_OUTPUT
           else
-            echo "broken_links=false" >> $GITHUB_ENV
-            echo "broken_links=false" >> $GITHUB_OUTPUT
+              echo "broken_links=false" >> $GITHUB_ENV
+              echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload broken links
@@ -116,7 +124,7 @@ jobs:
       - name: Set create_issues output
         id: set_outputs
         run: |
-          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
+          echo "::set-output name=create_issues::${{ env.create_issues }}"
 
   create-issues:
     name: Create Issues for Broken Links
@@ -176,6 +184,9 @@ jobs:
               echo ""
               echo "## Affected Files"
               echo "$file_list"
+              echo ""
+              echo "## Suggestions"
+              jq -r '.suggestions | unique | map("- \(. | gsub(" "; "%20"))") | join("\n")' <<< "$line"
             } > issue.md
 
             if [[ "$affected_files" != *"lib/views/help/"* ]]; then
