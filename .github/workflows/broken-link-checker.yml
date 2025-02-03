@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: "20 07 * * MON"
+    - cron: "20 20 * * MON"
   workflow_dispatch:
     inputs:
       testMode:
@@ -175,7 +175,7 @@ jobs:
                   if best_result:  # Ensure a match exists before unpacking
                       best_match, score = best_result[:2]  # Unpack safely
                       print(f"Best match for {broken_url}: {best_match} (Score: {score})")
-                       # Append Markdown formatted suggestion
+                      # Append Markdown formatted suggestion
                       link["suggestions"] = link.get("suggestions", []) + [best_match]
                       link["suggestions_formatted"] = link.get("suggestions_formatted", []) + [
                       f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
@@ -198,6 +198,7 @@ jobs:
               # Format existing Wayback Machine suggestion if it already exists
               wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
               if wayback_url:
+                  link["suggestions_formatted"] = [s for s in link["suggestions_formatted"] if "Wayback Machine Archive" not in s]
                   link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
 
           # Save updated JSON
