@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '15 04 * * MON'
+    - cron: '45 04 * * MON'
   workflow_dispatch:
     inputs:
       testMode:
@@ -72,7 +72,7 @@ jobs:
           args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
           output: lychee_report.json
           format: json
-          fail: false
+          fail: false 
           
       - name: Process Lychee Output
         id: process_output
@@ -126,6 +126,39 @@ jobs:
               echo "broken_links=false" >> $GITHUB_ENV
               echo "broken_links=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Fetch Sitemap and Match URLs for ico.org.uk
+        run: |
+          # Download the sitemap and filter for URLs containing 'ico.org.uk'
+          curl -s https://ico.org.uk/sitemap.xml | xmlstarlet sel -t -m "//url/loc" -v . -n | grep "ico.org.uk" > ico_sitemap_urls.txt
+
+          # For each broken URL, check if there’s a fuzzy match with the filtered sitemap URLs
+          while read -r line; do
+            url=$(echo "$line" | jq -r '.url // empty')
+            [[ -z "$url" ]] && continue
+
+            best_match=""
+            best_score=0
+
+            # Only match with URLs containing "ico.org.uk"
+            while read -r sitemap_url; do
+              score=$(python3 -c "
+              from fuzzywuzzy import fuzz
+              print(fuzz.partial_ratio('$url', '$sitemap_url'))
+              ")
+              if [ "$score" -gt "$best_score" ]; then
+                best_match=$sitemap_url
+                best_score=$score
+              fi
+            done < ico_sitemap_urls.txt
+
+            # If the best match has a score above 70, add it to suggestions
+            if [ "$best_score" -ge 70 ]; then
+              suggestion_list=$(jq -r ".suggestions += [\"$best_match\"]" <<< "$line")
+            fi
+
+            echo "$suggestion_list"
+          done < <(jq -c '.[]' reformatted_broken_links.json)
 
       - name: Upload broken links
         uses: actions/upload-artifact@v4
