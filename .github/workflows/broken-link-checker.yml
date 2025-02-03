@@ -1,13 +1,13 @@
 name: Check Broken Links in help pages
 env:
   GH_TOKEN: ${{ github.token }}
-  test_mode: false
+  test_mode: true
   create_issues: true
   max_test_issues: 5
 
 on:
   schedule:
-    - cron: '00 04 * * MON'
+    - cron: '15 04 * * MON'
   workflow_dispatch:
     inputs:
       testMode:
@@ -99,15 +99,26 @@ jobs:
                   )
                 })
               | map(
-                  . + { suggestions: (if (.suggestions | length) == 0
-                                       then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
-                                       else .suggestions end) }
+                  . + { suggestions: (
+                        .suggestions
+                        + (if (.url | test("ico\\.org\\.uk|gov\\.wales|llyw\\.cymru|gov\\.uk")) then
+                            ["https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
+                          else []
+                          end)
+                        + (if (.url | test("\\.scot")) then
+                            ["https://webarchive.nrscotland.gov.uk/+/ " + .url,
+                             "https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
+                          else []
+                          end)
+                        | unique
+                      )}
                 )
               | flatten
             ' lychee_report.json > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
           fi
+          
           if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
