@@ -145,53 +145,51 @@ jobs:
             exit 1
           fi
       
-          # Check the content of the sitemap
-          echo "Sitemap content:"
-          
-          # cat sitemap.xml
-      
           # Extract URLs containing "ico.org.uk" while handling the XML namespace
           echo "Extracting URLs containing ico.org.uk from the sitemap..."
           xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
       
           # Debug: Output extracted URLs
           echo "Extracted sitemap URLs:"
-          # cat ico_sitemap_urls.txt
+          cat ico_sitemap_urls.txt
       
-          # Process each broken URL
+          # Process each broken URL in parallel
           while read -r line; do
             url=$(echo "$line" | jq -r '.url // empty')
             [[ -z "$url" ]] && continue
       
-            # echo "Processing URL: $url"
+            # Start a background job to process this URL
+            {
+              best_match=""
+              best_score=0
       
-            best_match=""
-            best_score=0
+              # Compare each broken URL to the sitemap URLs
+              while read -r sitemap_url; do
+                echo "Matching with sitemap URL: $sitemap_url"
       
-            # Compare each broken URL to the sitemap URLs
-            while read -r sitemap_url; do
-              # echo "Matching with sitemap URL: $sitemap_url"
+                # Use Python for fuzzy matching (no indentation issues now)
+                score=$(python3 -c "from thefuzz import fuzz; url = '$url'; sitemap_url = '$sitemap_url'; score = fuzz.partial_ratio(url, sitemap_url); print(score)")
+                echo "Score: $score"
       
-              # Use Python for fuzzy matching (no indentation issues now)
-              score=$(python3 -c "from thefuzz import fuzz; url = '$url'; sitemap_url = '$sitemap_url'; score = fuzz.partial_ratio(url, sitemap_url); print(score)")
-                    # echo "Score: $score"
-              # echo "Score: $score"
+                if [ "$score" -gt "$best_score" ]; then
+                  best_match=$sitemap_url
+                  best_score=$score
+                fi
+              done < ico_sitemap_urls.txt
       
-              if [ "$score" -gt "$best_score" ]; then
-                best_match=$sitemap_url
-                best_score=$score
+              # If a good match is found, add it to the suggestion list
+              if [ "$best_score" -ge 70 ]; then
+                echo "Best match: $best_match (Score: $best_score)"
+                suggestion_list=$(jq -r ".suggestions += [\"$best_match\"]" <<< "$line")
               fi
-            done < ico_sitemap_urls.txt
       
-            # If a good match is found, add it to the suggestion list
-            if [ "$best_score" -ge 70 ]; then
-              echo "Best match: $best_match (Score: $best_score)"
-              suggestion_list=$(jq -r ".suggestions += [\"$best_match\"]" <<< "$line")
-            fi
-      
-            # Print the final suggestion list
-            echo "Updated suggestion list: $suggestion_list"
+              # Print the final suggestion list
+              echo "Updated suggestion list: $suggestion_list"
+            } & # Run the above in the background
           done < <(jq -c '.[]' reformatted_broken_links.json)
+      
+          # Wait for all background processes to finish
+          wait
       
             - name: Upload broken links
               uses: actions/upload-artifact@v4
