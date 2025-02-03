@@ -76,39 +76,30 @@ jobs:
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '
-              . as $root |
-              # Process error_map into an array of error objects.
-              (
-                $root.error_map
-                | to_entries
-                | map({ file: .key, errors: .value })
-                | map({
-                    url: (.[].errors | .[0].url), 
-                    status: (.[].errors | .[0].status),
-                    files: (map(.file) | unique)
-                  })
-              ) as $errors |
-              # For each error object, look up suggestions from suggestion_map using each file.
-              $errors
+              . as $root
+              | [ $root.error_map
+                  | to_entries[]
+                  | { file: .key, error: .value[] }
+                ]
+              | group_by(.error.url)
+              | map({
+                  url: .[0].error.url,
+                  status: .[0].error.status,
+                  files: (map(.file) | unique),
+                  suggestions: (
+                    .[0].error.url as $url
+                    | (map(.file) | unique)
+                      | map( ($root.suggestion_map[.] // [])
+                              | map(select(.original == $url) | .suggestion) )
+                      | flatten
+                      | unique
+                  )
+                })
               | map(
-                  . as $err
-                  | . + {
-                      suggestions: (
-                        (
-                          $err.files
-                          | map( ($root.suggestion_map[.] // [] )
-                                | map(select(.original == $err.url)) )
-                          | flatten
-                          | unique
-                        )
-                        as $sugg
-                        | if ($sugg | length) == 0 
-                          then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + $err.url)]
-                          else $sugg end
-                      )
-                    }
+                  . + { suggestions: (if (.suggestions | length) == 0
+                                       then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
+                                       else .suggestions end) }
                 )
-              | .[]
             ' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
