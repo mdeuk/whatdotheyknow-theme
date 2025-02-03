@@ -114,6 +114,10 @@ jobs:
       - name: Set create_issues output
         id: set_outputs
         run: |
+          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
+          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
+          echo "max_test_issues=${{ max_test_issues }}" >> $GITHUB_ENV
+          echo "max_test_issues=${{ max_test_issues }}" >> $GITHUB_OUTPUT
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
 
@@ -146,28 +150,37 @@ jobs:
       - name: Create (or update) issues for each broken link
         run: |
           set +e  # Do not exit immediately on error
+
+          # Check if the file exists and is non-empty
+          if [ ! -s broken-links-artifact/reformatted_broken_links.json ]; then
+            echo "No broken links found. Skipping issue creation."
+            exit 0
+          fi
+
           issue_count=0
           while read -r line; do
-            url=$(echo "$line" | jq -r '.url')
+            [[ -z "$line" || "$line" == "null" ]] && continue
+
+            url=$(echo "$line" | jq -r '.url // empty')
             url_safe=$(echo "$url" | sed 's/#/%23/g')  # Encode URL fragments
             status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
             status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
             affected_files=$(echo "$line" | jq -r '.files | unique')
-            
-            [[ -z "$url" || "$url" == "null" ]] && continue
-            
+
+            [[ -z "$url" ]] && continue
+
             issue_title="Broken Link: $url"
-            
-            # Find any existing issue (using startswith() for exact beginning match)
+
+            # Find any existing issue
             existing_issue=$(gh issue list --state open --label "broken-link" --json number,title | \
               jq -r --arg title "$issue_title" '.[] | select(.title | startswith($title)) | .number' | head -n 1)
-            
+
             labels="broken-link,non-developer"
             [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
-            
-            # Format the affected files as a Markdown list with links.
+
+            # Format affected files
             file_list=$(jq -r ".files | map(\"- [📄 \(. | gsub(\" \"; \"%20\"))](https://github.com/${{github.repository}}/blob/master/\(.))\") | join(\"\n\")" <<< "$line")
-            
+
             {
               echo "**Broken Link:** [$url_safe]($url_safe)"
               echo ""
@@ -178,6 +191,7 @@ jobs:
               echo ""
             } > issue.md
 
+            # Add suggestions if available
             jq -r '.suggestions | unique | map("- \(. | gsub(" "; "%20"))") | join("\n")' <<< "$line" | {
               read -r suggestion_list
               if [[ -n "$suggestion_list" ]]; then
@@ -188,11 +202,13 @@ jobs:
               fi
             } >> issue.md
 
+            # Additional note if needed
             if [[ "$affected_files" != *"lib/views/help/"* ]]; then
               echo "----"
               echo "If this file _should not_ be included in the list of affected files, please update the ignore list in the check workflow."
             fi >> issue.md
-            
+
+            # Create or update issue
             if [[ -n "$existing_issue" ]]; then
               {
                 echo "🔄 **Update:** Broken link still exists. 😩"
@@ -202,29 +218,27 @@ jobs:
                 echo "## Affected Files"
                 echo "$file_list"
               } > comment.md
-              
+
               echo "Updating existing issue #$existing_issue"
               gh issue comment "$existing_issue" --body-file comment.md || {
                 echo "Warning: Failed to comment on issue #$existing_issue"
-                echo "Continuing..."
                 continue
               }
             else
               echo "Creating new issue for: $url"
               gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || {
                 echo "Warning: Failed to create issue for $url"
-                echo "Continuing..."
                 continue
               }
             fi
-            
+
             ((issue_count++))
-            
+
             if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
               echo "Test mode: stopping after $issue_count issues."
               break
             fi
-            
-          done < <(jq -c '.[]' broken-links-artifact/reformatted_broken_links.json)
-          
+
+          done < <(jq -c 'select(. != null) | .[]' broken-links-artifact/reformatted_broken_links.json)
+
           exit 0
