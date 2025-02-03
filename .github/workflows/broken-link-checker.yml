@@ -77,22 +77,39 @@ jobs:
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '
               . as $root |
-              $root.error_map
-              | to_entries
-              | map({ file: .key, url: .value[].url, status: .value[].status })
-              | group_by(.url)
-              | map({
-                  url: .[0].url,
-                  status: .[0].status,
-                  files: (map(.file) | unique),
-                  suggestions: (
-                    (map(.file) | unique)
-                    | map( ($root.suggestion_map[.] // []))
-                    | flatten
-                    | map(.suggestion)
-                  )
-                })
-              | .[]' lychee_report.json | jq -s . > reformatted_broken_links.json
+              # Process error_map into an array of error objects.
+              (
+                $root.error_map
+                | to_entries
+                | map({ file: .key, errors: .value })
+                | map({
+                    url: (.[].errors | .[0].url), 
+                    status: (.[].errors | .[0].status),
+                    files: (map(.file) | unique)
+                  })
+              ) as $errors |
+              # For each error object, look up suggestions from suggestion_map using each file.
+              $errors
+              | map(
+                  . as $err
+                  | . + {
+                      suggestions: (
+                        (
+                          $err.files
+                          | map( ($root.suggestion_map[.] // [] )
+                                | map(select(.original == $err.url)) )
+                          | flatten
+                          | unique
+                        )
+                        as $sugg
+                        | if ($sugg | length) == 0 
+                          then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + $err.url)]
+                          else $sugg end
+                      )
+                    }
+                )
+              | .[]
+            ' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
           fi
@@ -124,7 +141,7 @@ jobs:
       - name: Set create_issues output
         id: set_outputs
         run: |
-          echo "::set-output name=create_issues::${{ env.create_issues }}"
+          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
 
   create-issues:
     name: Create Issues for Broken Links
@@ -185,9 +202,17 @@ jobs:
               echo "## Affected Files"
               echo "$file_list"
               echo ""
-              echo "## Suggestions"
-              jq -r '.suggestions | unique | map("- \(. | gsub(" "; "%20"))") | join("\n")' <<< "$line"
             } > issue.md
+
+            jq -r '.suggestions | unique | map("- \(. | gsub(" "; "%20"))") | join("\n")' <<< "$line" | {
+              read -r suggestion_list
+              if [[ -n "$suggestion_list" ]]; then
+                echo "### Suggestions"
+                echo ""
+                echo "$suggestion_list"
+                echo ""
+              fi
+            } >> issue.md
 
             if [[ "$affected_files" != *"lib/views/help/"* ]]; then
               echo "----"
