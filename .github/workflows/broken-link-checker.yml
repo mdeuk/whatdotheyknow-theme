@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: '20 07 * * MON'
+    - cron: "20 20 * * MON"
   workflow_dispatch:
     inputs:
       testMode:
@@ -45,7 +45,7 @@ jobs:
           else
             echo "test_mode=true" >> $GITHUB_ENV
           fi
-          
+
           echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
           echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
 
@@ -78,8 +78,8 @@ jobs:
           args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
           output: lychee_report.json
           format: json
-          fail: false 
-          
+          fail: false
+
       - name: Process Lychee Output
         id: process_output
         run: |
@@ -124,7 +124,7 @@ jobs:
           else
             echo "[]" > reformatted_broken_links.json
           fi
-          
+
           if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
@@ -137,15 +137,15 @@ jobs:
         run: |
           echo "Fetching the sitemap..."
           curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
-          
+
           if [ ! -s sitemap.xml ]; then
             echo "Error: Sitemap not fetched or empty"
             exit 1
           fi
-      
+
           echo "Extracting URLs from the sitemap..."
           xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
-      
+
           if [ ! -s ico_sitemap_urls.txt ]; then
             echo "Error: No URLs extracted from sitemap."
             exit 1
@@ -154,24 +154,24 @@ jobs:
           python3 - <<EOF
           import json
           from rapidfuzz import process
-          
+
           with open("reformatted_broken_links.json") as f:
               broken_links = json.load(f)
-          
+
           with open("ico_sitemap_urls.txt") as f:
               sitemap_urls = [line.strip() for line in f.readlines() if "ico.org.uk" in line]
-          
+
           threshold = 70
           for link in broken_links:
               broken_url = link.get("url", "")
               if not broken_url or "ico.org.uk" not in broken_url:  # Ignore non-ico.org.uk links
                   continue
-          
+
               candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
-          
+
               if candidates:
                   best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
-          
+
                   if best_result:  # Ensure a match exists before unpacking
                       best_match, score = best_result[:2]  # Unpack safely
                       print(f"Best match for {broken_url}: {best_match} (Score: {score})")
@@ -199,14 +199,14 @@ jobs:
               wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
               if wayback_url:
                   link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
-        
+
           # Save updated JSON
           with open("reformatted_broken_links.json", "w") as f:
               json.dump(broken_links, f, indent=2)
-          
+
           print("Matching complete.")
           EOF
-          
+
       - name: Upload broken links
         uses: actions/upload-artifact@v4
         with:
@@ -237,7 +237,7 @@ jobs:
       create_issues: ${{ steps.set_outputs.outputs.create_issues }}
       test_mode: ${{ steps.set_outputs.outputs.test_mode }}
       max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
-      
+
   create-issues:
     name: Create Issues for Broken Links
     runs-on: ubuntu-latest
@@ -257,10 +257,9 @@ jobs:
         run: |
           echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}" >> $GITHUB_ENV
           echo "test_mode=${{ needs.check-links.outputs.test_mode }}" >> $GITHUB_ENV
-          
+
           echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}"
           echo "test_mode=${{ needs.check-links.outputs.test_mode }}"
-          
 
       - name: Validate JSON File
         run: |
@@ -298,8 +297,8 @@ jobs:
             issue_title="Broken Link: $url"
 
             # Find any existing issues
-            existing_issues=$(gh issue list --state open --label "broken-link" --json number,title | \
-              jq -r --arg title "$issue_title" '.[] | select(.title | startswith($title)) | .number')
+            existing_issues=$(gh issue list --state open --label "broken-link" --limit 1000 --json number,title | \
+              jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
             
             # Check if any issues were found
             if [ -n "$existing_issues" ]; then
