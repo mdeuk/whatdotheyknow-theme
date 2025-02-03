@@ -1,13 +1,13 @@
 name: Check Broken Links in help pages
 env:
   GH_TOKEN: ${{ github.token }}
-  test_mode: true
+  test_mode: false
   create_issues: true
   max_test_issues: 5
 
 on:
   schedule:
-    - cron: '45 04 * * MON'
+    - cron: '20 07 * * MON'
   workflow_dispatch:
     inputs:
       testMode:
