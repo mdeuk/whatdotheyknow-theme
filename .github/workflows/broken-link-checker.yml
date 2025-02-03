@@ -30,6 +30,8 @@ jobs:
     outputs:
       broken_links: ${{ steps.process_output.outputs.broken_links }}
       create_issues: ${{ steps.set_outputs.outputs.create_issues }}
+      test_mode: ${{ steps.set_outputs.outputs.test_mode }}
+      max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
