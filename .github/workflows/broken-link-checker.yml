@@ -77,30 +77,11 @@ jobs:
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '
-              . as $root
-              | [ $root.error_map
-                  | to_entries[]
-                  | { file: .key, error: .value[] }
-                ]
-              | group_by(.error.url)
-              | map({
-                  url: .[0].error.url,
-                  status: .[0].error.status,
-                  files: (map(.file) | unique),
-                  suggestions: (
-                    .[0].error.url as $url
-                    | (map(.file) | unique)
-                      | map( ($root.suggestion_map[.] // [])
-                              | map(select(.original == $url) | .suggestion) )
-                      | flatten
-                      | unique
-                  )
-                })
-              | map(
-                  . + { suggestions: (if (.suggestions | length) == 0
-                                       then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
-                                       else .suggestions end) }
-                )
+              .error_map | to_entries | 
+              map({file: .key, url: .value[].url, status: .value[].status}) |
+              group_by(.url) |
+              map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)}) |
+              flatten | .[]
             ' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
