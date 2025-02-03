@@ -101,7 +101,8 @@ jobs:
                                        then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
                                        else .suggestions end) }
                 )
-            ' lychee_report.json | jq -s . > reformatted_broken_links.json
+              | flatten
+            ' lychee_report.json > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
           fi
