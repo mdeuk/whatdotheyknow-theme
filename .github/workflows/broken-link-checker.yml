@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       broken_links: ${{ steps.process_output.outputs.broken_links }}
-      create_issues: ${{ steps.process_output.outputs.create_issues }}
+      create_issues: ${{ steps.set_outputs.outputs.create_issues }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
