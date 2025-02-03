@@ -132,7 +132,7 @@ jobs:
       - name: Set create_issues output
         id: set_outputs
         run: |
-          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
+          echo "create_issues=$env.create_issues" >> $GITHUB_OUTPUT
 
   create-issues:
     name: Create Issues for Broken Links
