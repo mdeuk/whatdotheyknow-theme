@@ -151,8 +151,9 @@ jobs:
       
           # Debug: Output extracted URLs
           echo "Extracted sitemap URLs:"
-          cat ico_sitemap_urls.txt
-      
+          # cat ico_sitemap_urls.txt
+
+          cp reformatted_broken_links.json reformatted_broken_links.bak.json
           # Process each broken URL in parallel
           while read -r line; do
             url=$(echo "$line" | jq -r '.url // empty')
@@ -165,11 +166,12 @@ jobs:
       
               # Compare each broken URL to the sitemap URLs
               while read -r sitemap_url; do
-                echo "Matching with sitemap URL: $sitemap_url"
+                # echo "Matching with sitemap URL: $sitemap_url"
       
                 # Use Python for fuzzy matching (no indentation issues now)
                 score=$(python3 -c "from thefuzz import fuzz; url = '$url'; sitemap_url = '$sitemap_url'; score = fuzz.partial_ratio(url, sitemap_url); print(score)")
-                echo "Score: $score"
+                # echo "Score: $score
+                "
       
                 if [ "$score" -gt "$best_score" ]; then
                   best_match=$sitemap_url
@@ -184,7 +186,7 @@ jobs:
               fi
       
               # Print the final suggestion list
-              echo "Updated suggestion list: $suggestion_list"
+              # echo "Updated suggestion list: $suggestion_list"
             } & # Run the above in the background
           done < <(jq -c '.[]' reformatted_broken_links.json)
       
@@ -197,6 +199,7 @@ jobs:
                 name: broken-links
                 path: |
                   reformatted_broken_links.json
+                  reformatted_broken_links.bak.json
                   lychee_report.json
                 retention-days: 1
       
