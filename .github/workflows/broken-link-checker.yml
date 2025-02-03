@@ -101,7 +101,6 @@ jobs:
                                        then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
                                        else .suggestions end) }
                 )
-            flatten | .[]
             ' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
@@ -217,6 +216,7 @@ jobs:
               {
                 echo "### Suggestions"
                 echo ""
+                echo "The following is a _possible_ suggestion for an archive URL. But, if we can find a _live_ URL that would generally be best"
                 echo "$suggestion_list"
                 echo ""
               } >> issue.md
