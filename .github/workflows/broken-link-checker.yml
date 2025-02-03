@@ -175,10 +175,32 @@ jobs:
                   if best_result:  # Ensure a match exists before unpacking
                       best_match, score = best_result[:2]  # Unpack safely
                       print(f"Best match for {broken_url}: {best_match} (Score: {score})")
+                       # Append Markdown formatted suggestion
                       link["suggestions"] = link.get("suggestions", []) + [best_match]
+                      link["suggestions_formatted"] = link.get("suggestions_formatted", []) + [
+                      f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
+                      ]
                   else:
                       print(f"No good match found for {broken_url}")
+            
+
+                # Other sources (example: Wayback Machine, UKGWA, NRScotland)         
+                other_suggestions = {
+                    "Wayback Machine": f"https://web.archive.org/web/*/{broken_url}",
+                    "National Archives UKGWA": f"https://webarchive.nationalarchives.gov.uk/*/{broken_url}",
+                    "NRS Web Continuity": f"https://webarchive.nrscotland.gov.uk/*/{broken_url}",
+                }
+
+                for source, url in other_suggestions.items():
+                    link["suggestions"].append(url)
+                    link["suggestions_formatted"].append(f"- [{source} Archive]({url}) (Source: {source})")
+
+                # Format existing Wayback Machine suggestion if it already exists
+                wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
+                if wayback_url:
+                    link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
           
+          # Save updated JSON
           with open("reformatted_broken_links.json", "w") as f:
               json.dump(broken_links, f, indent=2)
           
@@ -277,7 +299,7 @@ jobs:
 
             # Find any existing issue
             existing_issue=$(gh issue list --state open --label "broken-link" --json number,title | \
-              jq -r --arg title "$issue_title" '.[] | select(.title | startswith($title)) | .number' | head -n 1)
+              jq -r --arg title "$issue_title" '.[] | select(.title | startswith($issue_title)) | .number' | head -n 1)
 
             labels="broken-link,non-developer"
             [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
