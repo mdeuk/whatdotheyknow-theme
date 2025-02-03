@@ -329,7 +329,12 @@ jobs:
             } > issue.md
             
             # Add suggestions if available
-            suggestion_list=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map("- [🔗 \(. | gsub(" "; "%20"))](\(.))") | join("\n")' <<< "$line" | sed 's/\\//g')
+            suggestion_list=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map(select(test("^\\[.*\\]\\(.*\\)$") | not) | "- [🔗 \(. | gsub(" "; "%20"))](\(.))") | join("\n")' <<< "$line" | sed 's/\\//g')
+            existing_markdown_suggestions=$(jq -r '.suggestions_formatted | select(length > 0) | unique | map(select(test("^\\[.*\\]\\(.*\\)$"))) | join("\n")' <<< "$line" | sed 's/\\//g')
+
+            if [[ -n "$existing_markdown_suggestions" ]]; then
+              suggestion_list="$existing_markdown_suggestions"$'\n'"$suggestion_list"
+            fi
             
             if [[ -n "$suggestion_list" ]]; then
               {
