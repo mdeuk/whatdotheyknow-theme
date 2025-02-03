@@ -36,11 +36,10 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.testMode }}" != "" ] && [ "${{ github.event.inputs.testMode }}" != "null" ]; then
             echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
-            echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_OUTPUT
           else
             echo "test_mode=true" >> $GITHUB_ENV
-            echo "test_mode=true" >> $GITHUB_OUTPUT
           fi
+          
           echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
           echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
 
@@ -140,10 +139,8 @@ jobs:
           echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_OUTPUT
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
-          if [ -z "${{ env.test_mode && github.event_name != 'workflow_dispatch' }}" ]; then
-            echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
-            echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
-          fi
+          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
+          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
     outputs:
       broken_links: ${{ steps.process_output.outputs.broken_links }}
       create_issues: ${{ steps.set_outputs.outputs.create_issues }}
@@ -167,8 +164,11 @@ jobs:
 
       - name: Check inputs
         run: |
-          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}  >> $GITHUB_ENV
-          echo "test_mode=${{ needs.check-links.outputs.test_mode }} >> $GITHUB_ENV
+          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}" >> $GITHUB_ENV
+          echo "test_mode=${{ needs.check-links.outputs.test_mode }}" >> $GITHUB_ENV
+          
+          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}"
+          echo "test_mode=${{ needs.check-links.outputs.test_mode }}"
           
 
       - name: Validate JSON File
