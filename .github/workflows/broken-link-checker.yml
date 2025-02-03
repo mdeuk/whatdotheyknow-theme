@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: "30 * * MON"
+    - cron: "30 21 * * MON"
   workflow_dispatch:
     inputs:
       testMode:
@@ -225,7 +225,7 @@ jobs:
         if: always()
         with:
           path: .lycheecache
-          key: cache-lychee-broken-links    
+          key: cache-lychee-broken-links
 
       - name: Set create_issues output
         id: set_outputs
