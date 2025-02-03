@@ -71,22 +71,41 @@ jobs:
           output: lychee_report.json
           format: json
           fail: false
-
+          
       - name: Process Lychee Output
         id: process_output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             jq -r '
-              .error_map | to_entries | 
-              map({file: .key, url: .value[].url, status: .value[].status}) |
-              group_by(.url) |
-              map({url: .[0].url, status: .[0].status, files: (map(.file) | unique)}) |
-              flatten | .[]
+              . as $root
+              | [ $root.error_map
+                  | to_entries[]
+                  | { file: .key, error: .value[] }
+                ]
+              | group_by(.error.url)
+              | map({
+                  url: .[0].error.url,
+                  status: .[0].error.status,
+                  files: (map(.file) | unique),
+                  suggestions: (
+                    .[0].error.url as $url
+                    | (map(.file) | unique)
+                      | map( ($root.suggestion_map[.] // [])
+                              | map(select(.original == $url) | .suggestion) )
+                      | flatten
+                      | unique
+                  )
+                })
+              | map(
+                  . + { suggestions: (if (.suggestions | length) == 0
+                                       then [("https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url)]
+                                       else .suggestions end) }
+                )
+            flatten | .[]
             ' lychee_report.json | jq -s . > reformatted_broken_links.json
           else
             echo "[]" > reformatted_broken_links.json
           fi
-
           if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
               echo "broken_links=true" >> $GITHUB_ENV
               echo "broken_links=true" >> $GITHUB_OUTPUT
@@ -180,7 +199,7 @@ jobs:
 
             # Format affected files
             file_list=$(jq -r ".files | map(\"- [📄 \(. | gsub(\" \"; \"%20\"))](https://github.com/${{github.repository}}/blob/master/\(.))\") | join(\"\n\")" <<< "$line")
-
+            
             {
               echo "**Broken Link:** [$url_safe]($url_safe)"
               echo ""
@@ -190,17 +209,19 @@ jobs:
               echo "$file_list"
               echo ""
             } > issue.md
-
+            
             # Add suggestions if available
-            jq -r '.suggestions | unique | map("- \(. | gsub(" "; "%20"))") | join("\n")' <<< "$line" | {
-              read -r suggestion_list
-              if [[ -n "$suggestion_list" ]]; then
+            suggestion_list=$(jq -r '.suggestions | select(length > 0) | unique | map("- [🔗 \(. | gsub(" "; "%20"))](\(.))") | join("\n")' <<< "$line")
+            
+            if [[ -n "$suggestion_list" ]]; then
+              {
                 echo "### Suggestions"
                 echo ""
                 echo "$suggestion_list"
                 echo ""
-              fi
-            } >> issue.md
+              } >> issue.md
+            fi
+
 
             # Additional note if needed
             if [[ "$affected_files" != *"lib/views/help/"* ]]; then
