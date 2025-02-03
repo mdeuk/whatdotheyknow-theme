@@ -140,7 +140,7 @@ jobs:
           echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_OUTPUT
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
           echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
-          if [ -z "${{ env.test_mode }}" ]; then
+          if [ -z "${{ env.test_mode && github.event_name != 'workflow_dispatch' }}" ]; then
             echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
             echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
           fi
@@ -159,6 +159,12 @@ jobs:
         with:
           name: broken-links
           path: broken-links-artifact
+
+      - name: Check inputs
+        run: |
+          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}  >> $GITHUB_ENV
+          echo "test_mode=${{ needs.check-links.outputs.test_mode }} >> $GITHUB_ENV
+          
 
       - name: Validate JSON File
         run: |
