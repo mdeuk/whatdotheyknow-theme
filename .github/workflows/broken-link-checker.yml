@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: "20 20 * * MON"
+    - cron: "20 07 * * MON"
   workflow_dispatch:
     inputs:
       testMode:
@@ -221,7 +221,7 @@ jobs:
         if: always()
         with:
           path: .lycheecache
-          key: cache-lychee-broken-links
+          key: cache-lychee-broken-links    
 
       - name: Set create_issues output
         id: set_outputs
@@ -354,6 +354,17 @@ jobs:
                 echo "## Affected Files"
                 echo "$file_list"
               } > comment.md
+
+              if(( ${#existing_issues[@]} > 1 )); then
+                {
+                echo ""
+                echo "There are multiple issues with the same title, so please check for duplicates."
+                echo "### Existing Issues"
+                for issue in "${existing_issues[@]}"; do
+                  echo "# $issue"
+                done
+                } >> comment.md
+              fi
 
               # echo "Updating existing issue #$existing_issue"
               # gh issue comment "$existing_issue" --body-file comment.md || {
