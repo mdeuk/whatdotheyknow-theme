@@ -1,7 +1,7 @@
 name: Check Broken Links in help pages
 
 env:
-  GH_TOKEN: ${{ github.token }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   test_mode: false
   create_issues: true
   max_test_issues: 5
@@ -14,41 +14,37 @@ on:
     inputs:
       testMode:
         type: boolean
-        description: Test mode?
+        description: Run in test mode (only logs results without creating issues)?
         default: true
       createIssues:
         type: boolean
-        description: Create issues for broken links?
+        description: Create issues for broken links (ignored in test mode)?
         default: false
-      howManyIssues:
+      maxIssues:
         type: number
-        description: Max issues in test mode
+        description: Max number of issues to create (test mode only)?
         default: 1
 
 jobs:
   check-links:
     name: Check for Broken Links in ERB files
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install xmlstarlet, and tools
+      - name: Install required tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xmlstarlet python3-pip
+          sudo apt-get update && sudo apt-get install -y xmlstarlet python3-pip
           pip3 install rapidfuzz lxml jq
 
-      - name: Check run mode
+      - name: Determine workflow inputs
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          if [ "${{ github.event.inputs.testMode }}" != "" ] && [ "${{ github.event.inputs.testMode }}" != "null" ]; then
-            echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
-          else
-            echo "test_mode=true" >> $GITHUB_ENV
-          fi
-          echo "create_issues=${{ github.event.inputs.createIssues != '' && github.event.inputs.createIssues != 'null' ? github.event.inputs.createIssues : 'false' }}" >> $GITHUB_ENV
-          echo "max_test_issues=${{ github.event.inputs.howManyIssues != '' && github.event.inputs.howManyIssues != 'null' ? github.event.inputs.howManyIssues : 5 }}" >> $GITHUB_ENV
+          echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+          echo "create_issues=${{ github.event.inputs.createIssues }}" >> $GITHUB_ENV
+          echo "max_test_issues=${{ github.event.inputs.maxIssues }}" >> $GITHUB_ENV
 
       - name: Restore lychee cache
         id: restore-cache
@@ -58,39 +54,27 @@ jobs:
           key: cache-lychee-broken-links-${{ hashFiles('.lycheeignore', '.github/workflows/broken-link-checker.yml') }}
           restore-keys: cache-lychee-
 
-      - name: Delete existing lychee cache object
+      - name: Define ignored files
         run: |
-          gh cache delete cache-lychee-broken-links || echo "Cache may not exist, continuing..."
-        continue-on-error: true
+          echo "lib/views/public_body/_more_info.html.erb" > .lycheeignore
+          echo "lib/views/general/_frontpage_videos.html.erb" >> .lycheeignore
 
-      - name: Specify files to ignore
-        run: |
-          touch .lycheeignore
-          {
-            echo "lib/views/public_body/_more_info.html.erb"
-            echo "lib/views/general/_frontpage_videos.html.erb"
-          } >> .lycheeignore
-        continue-on-error: true
-
-      - name: Precompute ERB files list
+      - name: Precompute ERB files
         run: |
           find lib/views -name '*.erb' | grep -v -f .lycheeignore > .erb-files-list
 
       - name: Run Lychee to Check Links
-        id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com --input-file .erb-files-list"
+          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{ github.repository }} (lychee)' --exclude-path .lycheeignore --suggest --verbose"
           output: lychee_report.json
           format: json
           fail: false
-          if [ -f lychee_report.json ] && [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-      - name: Process Lychee Output (Fixed with Failsafe + Summary)
-        id: process_output
+
+      - name: Process Lychee Output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            echo "Processing lychee_report.json to reformatted_broken_links.json"
-
+            echo "Processing Lychee report..."
             jq -r '
               . as $root
               | [ $root.error_map
@@ -118,159 +102,20 @@ jobs:
                 })
             ' lychee_report.json > reformatted_broken_links.json
 
-            echo "✅ Processed successfully."
-
-            echo "Checking for entries missing affected files..."
-            missing_files_count=$(jq '[.[] | select(.files == null or .files == [] or .files == [""]) ] | length' reformatted_broken_links.json)
-
-            if [ "$missing_files_count" -gt 0 ]; then
-              echo "⚠️ Warning: $missing_files_count broken links have no affected files listed!"
-              jq '.[] | select(.files == null or .files == [] or .files == [""]) | {url: .url}' reformatted_broken_links.json
-            else
-              echo "✅ All broken links have associated files."
-            fi
-
+            echo "Processed results saved to reformatted_broken_links.json"
           else
             echo "No broken links detected."
             echo "[]" > reformatted_broken_links.json
           fi
 
-          if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
-              echo "broken_links=true" >> $GITHUB_ENV
-              echo "broken_links=true" >> $GITHUB_OUTPUT
-          else
-              echo "broken_links=false" >> $GITHUB_ENV
-              echo "broken_links=false" >> $GITHUB_OUTPUT
-          fi
-
-          # Output GitHub Actions summary
-          broken_count=$(jq 'length' reformatted_broken_links.json)
-          {
-            echo "## 🔗 Broken Link Checker Report"
-            echo ""
-            echo "**Broken Links Found:** $broken_count"
-            echo ""
-            if [ "$broken_count" -gt 0 ]; then
-              echo "| Broken URL | Affected Files |"
-              echo "| --- | --- |"
-              jq -r --arg repo "${{ github.repository }}" '
-                .[] |
-                "| [" + .url + "](\"" + .url + ") | " +
-                ( .files | map("[\U0001F4C4 " + . + "](https://github.com/" + $repo + "/blob/main/" + . + ")") | join("<br>") ) +
-                " |"
-              ' reformatted_broken_links.json
-            else
-              echo "🎉 No broken links detected."
-            fi
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fetch Sitemap and Match URLs for ico.org.uk
-        run: |
-          echo "Fetching the sitemap..."
-          curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
-
-          if [ ! -s sitemap.xml ]; then
-            echo "Error: Sitemap not fetched or empty"
-            exit 1
-          fi
-
-          echo "Extracting URLs from the sitemap..."
-          DOMAIN_TO_FILTER=${{ env.DOMAIN_TO_FILTER || 'ico.org.uk' }}
-          xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "$DOMAIN_TO_FILTER" > ico_sitemap_urls.txt
-
-          if [ ! -s ico_sitemap_urls.txt ]; then
-            echo "Error: No URLs extracted from sitemap."
-            exit 1
-          fi
-
-          python3 - <<EOF
-          import json
-          from rapidfuzz import process
-
-          with open("reformatted_broken_links.json") as f:
-              broken_links = json.load(f)
-
-          with open("ico_sitemap_urls.txt") as f:
-              sitemap_urls = [line.strip() for line in f.readlines() if "ico.org.uk" in line]
-
-          threshold = 70
-          for link in broken_links:
-              broken_url = link.get("url", "")
-              if not broken_url or "ico.org.uk" not in broken_url:
-                  continue
-
-              if candidates:
-                  if candidates:
-                      best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
-                      if best_result:
-                          best_match, score = best_result[:2]
-                          print(f"Best match for {broken_url}: {best_match} (Score: {score})")
-                          if best_match not in link.get("suggestions", []):
-                              link["suggestions"] = link.get("suggestions", []) + [best_match]
-                              link.setdefault("suggestions_formatted", []).append(
-                                  f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
-                              )
-              if candidates:
-                  best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
-
-                  if best_result:
-                      best_match, score = best_result[:2]
-                      print(f"Best match for {broken_url}: {best_match} (Score: {score})")
-                      if best_match not in link.get("suggestions", []):
-                          link["suggestions"] = link.get("suggestions", []) + [best_match]
-                          link.setdefault("suggestions_formatted", []).append(
-                              f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
-                          )
-          with open("reformatted_broken_links.json", "w") as f:
-              json.dump(broken_links, f, indent=2)
-
-          print("Matching complete.")
-          EOF
-
-      - name: Update suggested links
-        run: |
-          python3 - <<EOF
-          import json
-
-          with open("reformatted_broken_links.json") as f:
-              broken_links = json.load(f)
-
-          for link in broken_links:
-              broken_url = link.get("url", "")
-              if not broken_url:
-                  continue
-
-              link.setdefault("suggestions_formatted", [])
-                  if url not in link.get("suggestions", []):
-                      link["suggestions"].append(url)
-                      markdown_string = f"- [{source} Archive]({url}) (Source: {source})"
-                      if markdown_string not in link["suggestions_formatted"]:
-                          link["suggestions_formatted"].append(markdown_string)
-                  "Wayback Machine": f"https://web.archive.org/web/*/{broken_url}",
-                  "National Archives UKGWA": f"https://webarchive.nationalarchives.gov.uk/*/{broken_url}",
-                  "NRS Web Continuity": f"https://webarchive.nrscotland.gov.uk/*/{broken_url}",
-              }
-
-              for source, url in other_suggestions.items():
-                  if url not in link.get("suggestions", []):
-                      link["suggestions"].append(url)
-                      link["suggestions_formatted"].append(f"- [{source} Archive]({url}) (Source: {source})")
-
-          with open("reformatted_broken_links.json", "w") as f:
-              json.dump(broken_links, f, indent=2)
-
-          print("Suggestion update complete.")
-          EOF
-
-      - name: Upload broken links
+      - name: Upload Broken Links Report
         uses: actions/upload-artifact@v4
         with:
           name: broken-links
           path: |
             reformatted_broken_links.json
             lychee_report.json
-          retention-days: 1
+          retention-days: 7
 
       - name: Save updated lychee cache
         uses: actions/cache/save@v4
