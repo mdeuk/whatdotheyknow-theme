@@ -5,6 +5,7 @@ env:
   test_mode: false
   create_issues: true
   max_test_issues: 5
+  DOMAIN_TO_FILTER: ico.org.uk
 
 on:
   schedule:
@@ -46,15 +47,15 @@ jobs:
           else
             echo "test_mode=true" >> $GITHUB_ENV
           fi
-          echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
-          echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
+          echo "create_issues=${{ github.event.inputs.createIssues != '' && github.event.inputs.createIssues != 'null' ? github.event.inputs.createIssues : 'false' }}" >> $GITHUB_ENV
+          echo "max_test_issues=${{ github.event.inputs.howManyIssues != '' && github.event.inputs.howManyIssues != 'null' ? github.event.inputs.howManyIssues : 5 }}" >> $GITHUB_ENV
 
       - name: Restore lychee cache
         id: restore-cache
         uses: actions/cache/restore@v4
         with:
           path: .lycheecache
-          key: cache-lychee-broken-links
+          key: cache-lychee-broken-links-${{ hashFiles('.lycheeignore', '.github/workflows/broken-link-checker.yml') }}
           restore-keys: cache-lychee-
 
       - name: Delete existing lychee cache object
@@ -71,22 +72,25 @@ jobs:
           } >> .lycheeignore
         continue-on-error: true
 
+      - name: Precompute ERB files list
+        run: |
+          find lib/views -name '*.erb' | grep -v -f .lycheeignore > .erb-files-list
+
       - name: Run Lychee to Check Links
         id: lychee
         uses: lycheeverse/lychee-action@v2.2.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
+          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com --input-file .erb-files-list"
           output: lychee_report.json
           format: json
           fail: false
-
+          if [ -f lychee_report.json ] && [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
       - name: Process Lychee Output (Fixed with Failsafe + Summary)
         id: process_output
         run: |
           if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
             echo "Processing lychee_report.json to reformatted_broken_links.json"
 
-            
             jq -r '
               . as $root
               | [ $root.error_map
@@ -172,7 +176,8 @@ jobs:
           fi
 
           echo "Extracting URLs from the sitemap..."
-          xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
+          DOMAIN_TO_FILTER=${{ env.DOMAIN_TO_FILTER || 'ico.org.uk' }}
+          xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "$DOMAIN_TO_FILTER" > ico_sitemap_urls.txt
 
           if [ ! -s ico_sitemap_urls.txt ]; then
             echo "Error: No URLs extracted from sitemap."
@@ -195,8 +200,17 @@ jobs:
               if not broken_url or "ico.org.uk" not in broken_url:
                   continue
 
-              candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
-
+              if candidates:
+                  if candidates:
+                      best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
+                      if best_result:
+                          best_match, score = best_result[:2]
+                          print(f"Best match for {broken_url}: {best_match} (Score: {score})")
+                          if best_match not in link.get("suggestions", []):
+                              link["suggestions"] = link.get("suggestions", []) + [best_match]
+                              link.setdefault("suggestions_formatted", []).append(
+                                  f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
+                              )
               if candidates:
                   best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
 
@@ -228,9 +242,11 @@ jobs:
                   continue
 
               link.setdefault("suggestions_formatted", [])
-              link.setdefault("suggestions", [])
-
-              other_suggestions = {
+                  if url not in link.get("suggestions", []):
+                      link["suggestions"].append(url)
+                      markdown_string = f"- [{source} Archive]({url}) (Source: {source})"
+                      if markdown_string not in link["suggestions_formatted"]:
+                          link["suggestions_formatted"].append(markdown_string)
                   "Wayback Machine": f"https://web.archive.org/web/*/{broken_url}",
                   "National Archives UKGWA": f"https://webarchive.nationalarchives.gov.uk/*/{broken_url}",
                   "NRS Web Continuity": f"https://webarchive.nrscotland.gov.uk/*/{broken_url}",
@@ -258,7 +274,6 @@ jobs:
 
       - name: Save updated lychee cache
         uses: actions/cache/save@v4
-        if: always()
         with:
           path: .lycheecache
           key: cache-lychee-broken-links
