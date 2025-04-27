@@ -61,214 +61,220 @@
 #   archive links as fallback.
 # - The ignore list can be updated to exclude files from scanning.
 # -----------------------------------------------------------------------------
-name: Check Broken Links in help pages
-env:
-  GH_TOKEN: ${{ github.token }}
-  test_mode: false
-  create_issues: true
-  max_test_issues: 5
-
-on:
-  schedule:
-    - cron: "30 21 * * MON"
-  workflow_dispatch:
-    inputs:
-      testMode:
-        type: boolean
-        description: Test mode?
-        default: true
-      createIssues:
-        type: boolean
-        description: Create issues for broken links?
-        default: false
-      howManyIssues:
-        type: number
-        description: Max issues in test mode
-        default: 1
-
-jobs:
-  check-links:
-    name: Check for Broken Links in ERB files
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install xmlstarlet, and tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xmlstarlet python3-pip
-          pip3 install rapidfuzz lxml jq
-
-      - name: Check run mode
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ "${{ github.event.inputs.testMode }}" != "" ] && [ "${{ github.event.inputs.testMode }}" != "null" ]; then
-            echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
-          else
-            echo "test_mode=true" >> $GITHUB_ENV
-          fi
-
-          echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
-          echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
-
-      - name: Restore lychee cache
-        id: restore-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .lycheecache
-          key: cache-lychee-broken-links
-          restore-keys: cache-lychee-
-
-      - name: Delete existing lychee cache object
-        run: |
-          gh cache delete cache-lychee-broken-links || echo "Cache may not exist, continuing..."
-        continue-on-error: true
-
-      - name: Specify files to ignore
-        run: |
-          touch .lycheeignore
-          {
-            echo "lib/views/public_body/_more_info.html.erb"
-            echo "lib/views/general/_frontpage_videos.html.erb" 
-          } >> .lycheeignore
-        continue-on-error: true
-
-      - name: Run Lychee to Check Links
-        id: lychee
-        uses: lycheeverse/lychee-action@v2.2.0
-        with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
-          output: lychee_report.json
-          format: json
-          fail: false
-
-      - name: Process Lychee Output
-        id: process_output
-        run: |
-          if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            jq -r '
-              . as $root
-              | [ $root.error_map
-                  | to_entries[]
-                  | { file: .key, error: .value[] }
-                ]
-              | group_by(.error.url)
-              | map({
-                  url: .[0].error.url,
-                  status: .[0].error.status,
-                  files: (map(.file) | unique),
-                  suggestions: (
-                    .[0].error.url as $url
-                    | (map(.file) | unique)
-                      | map( ($root.suggestion_map[.] // [])
-                              | map(select(.original == $url) | .suggestion) )
-                      | flatten
-                      | unique
-                  )
-                })
-              | map(
-                  . + { suggestions: (
-                        .suggestions
-                        + (if (.url | test("ico\\.org\\.uk|gov\\.wales|llyw\\.cymru|gov\\.uk")) then
-                            ["https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
-                          else []
-                          end)
-                        + (if (.url | test("\\.scot")) then
-                            ["https://webarchive.nrscotland.gov.uk/+/" + .url,
-                             "https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
-                          else []
-                          end)
-                        | unique
-                      )}
-                )
-              | flatten
-            ' lychee_report.json > reformatted_broken_links.json
-
-            
-          else
-            echo "[]" > reformatted_broken_links.json
-          fi
-
-          if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
-              echo "broken_links=true" >> $GITHUB_ENV
-              echo "broken_links=true" >> $GITHUB_OUTPUT
-          else
-              echo "broken_links=false" >> $GITHUB_ENV
-              echo "broken_links=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Fetch Sitemap and Match URLs for ico.org.uk
-        run: |
-          echo "Fetching the sitemap..."
-          curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
-
-          if [ ! -s sitemap.xml ]; then
-            echo "Error: Sitemap not fetched or empty"
-            exit 1
-          fi
-
-          echo "Extracting URLs from the sitemap..."
-          xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
-
-          if [ ! -s ico_sitemap_urls.txt ]; then
-            echo "Error: No URLs extracted from sitemap."
-            exit 1
-          fi
-
-          python3 - <<EOF
-          import json
-          from rapidfuzz import process
-
-          with open("reformatted_broken_links.json") as f:
-              broken_links = json.load(f)
-
-          with open("ico_sitemap_urls.txt") as f:
-              sitemap_urls = [line.strip() for line in f.readlines() if "ico.org.uk" in line]
-
-          threshold = 70
-          for link in broken_links:
-              broken_url = link.get("url", "")
-              if not broken_url or "ico.org.uk" not in broken_url:  # Ignore non-ico.org.uk links
-                  continue
-
-              candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
-
-              if candidates:
-                  best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
-
-                  if best_result:  # Ensure a match exists before unpacking
-                      best_match, score = best_result[:2]  # Unpack safely
-                      print(f"Best match for {broken_url}: {best_match} (Score: {score})")
-                       # Append Markdown formatted suggestion
-                      if best_match not in link.get("suggestions", []):
-                          link["suggestions"] = link.get("suggestions", []) + [best_match]
-                          link["suggestions_formatted"] = link.get("suggestions_formatted", []) + [
-                          f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
-                          ]
-                  else:
-                      print(f"No good match found for {broken_url}")
-          # Save updated JSON
-          with open("reformatted_broken_links.json", "w") as f:
-              json.dump(broken_links, f, indent=2)
-
-          print("Matching complete.")
-          EOF
-
-
-      - name: Update suggested links
-        run: |
-
-          python3 - <<EOF
-          import json
-
-          with open("reformatted_broken_links.json") as f:
-              broken_links = json.load(f)
-
+    name: Check Broken Links in help pages
+    env:
+      GH_TOKEN: ${{ github.token }}
+      test_mode: false
+      create_issues: true
+      max_test_issues: 5
+    
+    on:
+      schedule:
+        - cron: "30 21 * * MON"
+      workflow_dispatch:
+        inputs:
+          testMode:
+            type: boolean
+            description: Test mode?
+            default: true
+          createIssues:
+            type: boolean
+            description: Create issues for broken links?
+            default: false
+          howManyIssues:
+            type: number
+            description: Max issues in test mode
+            default: 1
+    
+    jobs:
+      check-links:
+        name: Check for Broken Links in ERB files
+        runs-on: ubuntu-latest
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v4
+    
+          - name: Install xmlstarlet, and tools
+            run: |
+              sudo apt-get update
+              sudo apt-get install -y xmlstarlet python3-pip
+              pip3 install rapidfuzz lxml jq
+    
+          - name: Check run mode
+            if: ${{ github.event_name == 'workflow_dispatch' }}
+            run: |
+              if [ "${{ github.event.inputs.testMode }}" != "" ] && [ "${{ github.event.inputs.testMode }}" != "null" ]; then
+                echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
+              else
+                echo "test_mode=true" >> $GITHUB_ENV
+              fi
+    
+              echo "create_issues=${{ github.event.inputs.createIssues || 'false' }}" >> $GITHUB_ENV
+              echo "max_test_issues=${{ github.event.inputs.howManyIssues || 5 }}" >> $GITHUB_ENV
+    
+          - name: Restore lychee cache
+            id: restore-cache
+            uses: actions/cache/restore@v4
+            with:
+              path: .lycheecache
+              key: cache-lychee-broken-links
+              restore-keys: cache-lychee-
+    
+          - name: Delete existing lychee cache object
+            run: |
+              gh cache delete cache-lychee-broken-links || echo "Cache may not exist, continuing..."
+            continue-on-error: true
+    
+          - name: Specify files to ignore
+            run: |
+              touch .lycheeignore
+              {
+                echo "lib/views/public_body/_more_info.html.erb"
+                echo "lib/views/general/_frontpage_videos.html.erb" 
+              } >> .lycheeignore
+            continue-on-error: true
+    
+          - name: Run Lychee to Check Links
+            id: lychee
+            uses: lycheeverse/lychee-action@v2.2.0
+            with:
+              args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{github.repository}} (lychee)' --exclude-path .lycheeignore --suggest --archive wayback --exclude whatdotheyknow.com $(find lib/views -name '*.erb' | grep -v -f .lycheeignore)"
+              output: lychee_report.json
+              format: json
+              fail: false
+    
+          - name: Process Lychee Output
+            id: process_output
+            run: |
+              if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
+                jq -r '
+                  . as $root
+                  | [ $root.error_map
+                      | to_entries[]
+                      | { file: .key, error: .value[] }
+                    ]
+                  | group_by(.error.url)
+                  | map({
+                      url: .[0].error.url,
+                      status: .[0].error.status,
+                      files: (map(.file) | unique),
+                      suggestions: (
+                        .[0].error.url as $url
+                        | (map(.file) | unique)
+                          | map( ($root.suggestion_map[.] // [])
+                                  | map(select(.original == $url) | .suggestion) )
+                          | flatten
+                          | unique
+                      )
+                    })
+                  | map(
+                      . + { suggestions: (
+                            .suggestions
+                            + (if (.url | test("ico\\.org\\.uk|gov\\.wales|llyw\\.cymru|gov\\.uk")) then
+                                ["https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
+                              else []
+                              end)
+                            + (if (.url | test("\\.scot")) then
+                                ["https://webarchive.nrscotland.gov.uk/+/" + .url,
+                                 "https://webarchive.nationalarchives.gov.uk/ukgwa/+/" + .url]
+                              else []
+                              end)
+                            | unique
+                          )}
+                    )
+                  | flatten
+                ' lychee_report.json > reformatted_broken_links.json
+    
+                
+              else
+                echo "[]" > reformatted_broken_links.json
+              fi
+    
+              if [ "$(jq 'length' reformatted_broken_links.json)" -gt 0 ]; then
+                  echo "broken_links=true" >> $GITHUB_ENV
+                  echo "broken_links=true" >> $GITHUB_OUTPUT
+              else
+                  echo "broken_links=false" >> $GITHUB_ENV
+                  echo "broken_links=false" >> $GITHUB_OUTPUT
+              fi
+    
+          - name: Fetch Sitemap and Match URLs for ico.org.uk
+            run: |
+              echo "Fetching the sitemap..."
+              curl -s https://ico.org.uk/sitemap.xml -o sitemap.xml
+    
+              if [ ! -s sitemap.xml ]; then
+                echo "Error: Sitemap not fetched or empty"
+                exit 1
+              fi
+    
+              echo "Extracting URLs from the sitemap..."
+              xmlstarlet sel -N ns="http://www.sitemaps.org/schemas/sitemap/0.9" -t -m "//ns:url/ns:loc" -v . -n sitemap.xml | grep "ico.org.uk" > ico_sitemap_urls.txt
+    
+              if [ ! -s ico_sitemap_urls.txt ]; then
+                echo "Error: No URLs extracted from sitemap."
+                exit 1
+              fi
+    
+              python3 - <<EOF
+              import json
+              from rapidfuzz import process
+    
+              with open("reformatted_broken_links.json") as f:
+                  broken_links = json.load(f)
+    
+              with open("ico_sitemap_urls.txt") as f:
+                  sitemap_urls = [line.strip() for line in f.readlines() if "ico.org.uk" in line]
+    
+              threshold = 70
+              for link in broken_links:
+                  broken_url = link.get("url", "")
+                  if not broken_url or "ico.org.uk" not in broken_url:  # Ignore non-ico.org.uk links
+                      continue
+    
+                  candidates = [url for url in sitemap_urls if any(part in url for part in broken_url.split("/")[-2:])]
+    
+                  if candidates:
+                      best_result = process.extractOne(broken_url, candidates, score_cutoff=threshold)
+    
+                      if best_result:  # Ensure a match exists before unpacking
+                          best_match, score = best_result[:2]  # Unpack safely
+                          print(f"Best match for {broken_url}: {best_match} (Score: {score})")
+                           # Append Markdown formatted suggestion
+                          if best_match not in link.get("suggestions", []):
+                              link["suggestions"] = link.get("suggestions", []) + [best_match]
+                              link["suggestions_formatted"] = link.get("suggestions_formatted", []) + [
+                              f"- [{best_match}]({best_match}) (Score: {score:.1f}%)"
+                              ]
+                      else:
+                          print(f"No good match found for {broken_url}")
+              # Save updated JSON
+              with open("reformatted_broken_links.json", "w") as f:
+                  json.dump(broken_links, f, indent=2)
+    
+              print("Matching complete.")
+              EOF
+    
+    
+          - name: Update suggested links
+            run: |
+    
+              python3 - <<EOF
+              import json
+    
+              with open("reformatted_broken_links.json") as f:
+                  broken_links = json.load(f)
+    
               for link in broken_links:
                   broken_url = link.get("url", "")
                   if not broken_url:
                       continue
+    
+                  # Ensure suggestions_formatted exists
+                  if "suggestions_formatted" not in link or not isinstance(link["suggestions_formatted"], list):
+                      link["suggestions_formatted"] = []
+                  if "suggestions" not in link or not isinstance(link["suggestions"], list):
+                      link["suggestions"] = []
     
                   # Other sources (example: Wayback Machine, UKGWA, NRScotland)         
                   other_suggestions = {
@@ -285,189 +291,189 @@ jobs:
                   # Format existing Wayback Machine suggestion if it already exists
                   wayback_url = next((s for s in link["suggestions"] if "web.archive.org" in s), None)
                   if wayback_url:
-                      if "suggestions_formatted" not in link:
+                      if "suggestions_formatted" not in link or not isinstance(link["suggestions_formatted"], list):
                           link["suggestions_formatted"] = []
                       link["suggestions_formatted"].append(f"- [Wayback Machine Archive]({wayback_url}) (Source: Wayback Machine)")
-
-          # Save updated JSON
-          with open("reformatted_broken_links.json", "w") as f:
-              json.dump(broken_links, f, indent=2)
-
-          print("Matching complete.")
-          EOF
-
-      - name: Upload broken links
-        uses: actions/upload-artifact@v4
-        with:
-          name: broken-links
-          path: |
-            reformatted_broken_links.json
-            lychee_report.json
-          retention-days: 1
-
-      - name: Save updated lychee cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: .lycheecache
-          key: cache-lychee-broken-links
-
-      - name: Set create_issues output
-        id: set_outputs
-        run: |
-          echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_ENV
-          echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_OUTPUT
-          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
-          echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
-          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
-          echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
-    outputs:
-      broken_links: ${{ steps.process_output.outputs.broken_links }}
-      create_issues: ${{ steps.set_outputs.outputs.create_issues }}
-      test_mode: ${{ steps.set_outputs.outputs.test_mode }}
-      max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
-
-  create-issues:
-    name: Create Issues for Broken Links
-    runs-on: ubuntu-latest
-    needs: check-links
-    if: ${{ needs.check-links.outputs.broken_links == 'true' && needs.check-links.outputs.create_issues == 'true' }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download broken links artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: broken-links
-          path: broken-links-artifact
-
-      - name: Check inputs
-        run: |
-          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}" >> $GITHUB_ENV
-          echo "test_mode=${{ needs.check-links.outputs.test_mode }}" >> $GITHUB_ENV
-
-          echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}"
-          echo "test_mode=${{ needs.check-links.outputs.test_mode }}"
-
-      - name: Validate JSON File
-        run: |
-          if [[ ! -s broken-links-artifact/reformatted_broken_links.json ]]; then
-            echo "Error: broken-links-artifact/reformatted_broken_links.json is empty!"
-            exit 1
-          fi
-          if ! jq empty broken-links-artifact/reformatted_broken_links.json 2>/dev/null; then
-            echo "Invalid JSON format!"
-            exit 1
-          fi
-
-      - name: Create (or update) issues for each broken link
-        run: |
-          set +e  # Do not exit immediately on error
-
-          if [ ! -s broken-links-artifact/reformatted_broken_links.json ]; then
-            echo "No broken links found. Skipping issue creation."
-            exit 0
-          fi
-
-          issue_count=0
-          while read -r line; do
-            [[ -z "$line" || "$line" == "null" ]] && continue
-
-            url=$(echo "$line" | jq -r '.url // empty')
-            url_safe=$(echo "$url" | sed 's/#/%23/g')
-            status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
-            status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
-            affected_files=$(echo "$line" | jq -r '.files | unique')
-
-            [[ -z "$url" ]] && continue
-
-            issue_title="Broken Link: $url"
-
-            existing_issues=$(gh issue list --state open --label "broken-link" --limit 1000 --json number,title | \
-              jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
-
-            labels="broken-link,non-developer"
-            [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
-
-            file_list=$(jq -r ".files | map(\"- [📄 \\(. | gsub(\" \", \"%20\"))](https://github.com/${{github.repository}}/blob/master/\\(.))\") | join(\"\\n\")" <<< "$line")
-
-            {
-              echo "**Broken Link:** [$url_safe]($url_safe)"
-              echo ""
-              echo "**Status Code:** \`$status_code\` _$status_text_"
-              echo ""
-              echo "## Affected Files"
-              echo "$file_list"
-              echo ""
-            } > issue.md
-
-            # Improved suggestions formatting
-            live_suggestions=$(jq -r '.suggestions_formatted | map(select(test("ico\\.org\\.uk"))) | unique | .[]' <<< "$line")
-            archive_suggestions=$(jq -r '.suggestions_formatted | map(select(test("web\.archive\.org|nationalarchives|nrscotland"))) | unique | .[]' <<< "$line")
-            other_suggestions=$(jq -r '.suggestions_formatted | map(select(. | test("ico\\.org\\.uk|web\.archive\.org|nationalarchives|nrscotland") | not)) | unique | .[]' <<< "$line")
-
-            if [[ -n "$live_suggestions" || -n "$archive_suggestions" || -n "$other_suggestions" ]]; then
-              echo "### Suggestions" >> issue.md
-              echo "" >> issue.md
-              echo "The following are possible alternatives for the broken link (prefer live links if possible):" >> issue.md
-              echo "" >> issue.md
-              if [[ -n "$live_suggestions" ]]; then
-                echo "**Live:**" >> issue.md
-                echo "$live_suggestions" | sed 's/^/- /' >> issue.md
-                echo "" >> issue.md
+    
+              # Save updated JSON
+              with open("reformatted_broken_links.json", "w") as f:
+                  json.dump(broken_links, f, indent=2)
+    
+              print("Matching complete.")
+              EOF
+    
+          - name: Upload broken links
+            uses: actions/upload-artifact@v4
+            with:
+              name: broken-links
+              path: |
+                reformatted_broken_links.json
+                lychee_report.json
+              retention-days: 1
+    
+          - name: Save updated lychee cache
+            uses: actions/cache/save@v4
+            if: always()
+            with:
+              path: .lycheecache
+              key: cache-lychee-broken-links
+    
+          - name: Set create_issues output
+            id: set_outputs
+            run: |
+              echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_ENV
+              echo "max_test_issues=${{ env.max_test_issues }}" >> $GITHUB_OUTPUT
+              echo "create_issues=${{ env.create_issues }}" >> $GITHUB_ENV
+              echo "create_issues=${{ env.create_issues }}" >> $GITHUB_OUTPUT
+              echo "test_mode=${{ env.test_mode }}" >> $GITHUB_ENV
+              echo "test_mode=${{ env.test_mode }}" >> $GITHUB_OUTPUT
+        outputs:
+          broken_links: ${{ steps.process_output.outputs.broken_links }}
+          create_issues: ${{ steps.set_outputs.outputs.create_issues }}
+          test_mode: ${{ steps.set_outputs.outputs.test_mode }}
+          max_test_issues: ${{ steps.set_outputs.outputs.max_test_issues }}
+    
+      create-issues:
+        name: Create Issues for Broken Links
+        runs-on: ubuntu-latest
+        needs: check-links
+        if: ${{ needs.check-links.outputs.broken_links == 'true' && needs.check-links.outputs.create_issues == 'true' }}
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v4
+    
+          - name: Download broken links artifact
+            uses: actions/download-artifact@v4
+            with:
+              name: broken-links
+              path: broken-links-artifact
+    
+          - name: Check inputs
+            run: |
+              echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}" >> $GITHUB_ENV
+              echo "test_mode=${{ needs.check-links.outputs.test_mode }}" >> $GITHUB_ENV
+    
+              echo "max_test_issues=${{ needs.check-links.outputs.max_test_issues }}"
+              echo "test_mode=${{ needs.check-links.outputs.test_mode }}"
+    
+          - name: Validate JSON File
+            run: |
+              if [[ ! -s broken-links-artifact/reformatted_broken_links.json ]]; then
+                echo "Error: broken-links-artifact/reformatted_broken_links.json is empty!"
+                exit 1
               fi
-              if [[ -n "$archive_suggestions" ]]; then
-                echo "**Archive:**" >> issue.md
-                echo "$archive_suggestions" | sed 's/^/- /' >> issue.md
-                echo "" >> issue.md
+              if ! jq empty broken-links-artifact/reformatted_broken_links.json 2>/dev/null; then
+                echo "Invalid JSON format!"
+                exit 1
               fi
-              if [[ -n "$other_suggestions" ]]; then
-                echo "**Other:**" >> issue.md
-                echo "$other_suggestions" | sed 's/^/- /' >> issue.md
-                echo "" >> issue.md
+    
+          - name: Create (or update) issues for each broken link
+            run: |
+              set +e  # Do not exit immediately on error
+    
+              if [ ! -s broken-links-artifact/reformatted_broken_links.json ]; then
+                echo "No broken links found. Skipping issue creation."
+                exit 0
               fi
-              echo "_If possible, please update to a live link. Archive links are for reference only._" >> issue.md
-              echo "" >> issue.md
-            fi
-
-            if [[ "$affected_files" != *"lib/views/help/"* ]]; then
-              echo "----" >> issue.md
-              echo "If this file _should not_ be included in the list of affected files, please update the ignore list in the check workflow." >> issue.md
-            fi
-
-            if [[ -n "$existing_issues" ]]; then
-              {
-                echo "🔄 **Update:** Broken link still exists. 😩"
-                echo ""
-                echo "**Status Code:** \`$status_code\` _$status_text_"
-                echo ""
-                echo "## Affected Files"
-                echo "$file_list"
-              } > comment.md
-
-              for existing_issue in $existing_issues; do
-                echo "Updating existing issue #$existing_issue"
-                gh issue comment "$existing_issue" --body-file comment.md || {
-                  echo "Warning: Failed to comment on issue #$existing_issue"
-                  continue
-                }
-              done
-            else
-              echo "Creating new issue for: $url"
-              gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || {
-                echo "Warning: Failed to create issue for $url"
-                continue
-              }
-            fi
-
-            ((issue_count++))
-
-            if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
-              echo "Test mode: stopping after $issue_count issues."
-              break
-            fi
-
-          done < <(jq -c 'select(. != null) | .[]' broken-links-artifact/reformatted_broken_links.json)
-
-          exit 0
+    
+              issue_count=0
+              while read -r line; do
+                [[ -z "$line" || "$line" == "null" ]] && continue
+    
+                url=$(echo "$line" | jq -r '.url // empty')
+                url_safe=$(echo "$url" | sed 's/#/%23/g')
+                status_code=$(echo "$line" | jq -r '.status.code // "Unknown"')
+                status_text=$(echo "$line" | jq -r '.status.text // "Unknown"')
+                affected_files=$(echo "$line" | jq -r '.files | unique')
+    
+                [[ -z "$url" ]] && continue
+    
+                issue_title="Broken Link: $url"
+    
+                existing_issues=$(gh issue list --state open --label "broken-link" --limit 1000 --json number,title | \
+                  jq -r --arg title "$issue_title" '.[] | select(.title == $title) | .number')
+    
+                labels="broken-link,non-developer"
+                [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
+    
+                file_list=$(jq -r ".files | map(\"- [📄 \\(. | gsub(\" \", \"%20\"))](https://github.com/${{github.repository}}/blob/master/\\(.))\") | join(\"\\n\")" <<< "$line")
+    
+                {
+                  echo "**Broken Link:** [$url_safe]($url_safe)"
+                  echo ""
+                  echo "**Status Code:** \`$status_code\` _$status_text_"
+                  echo ""
+                  echo "## Affected Files"
+                  echo "$file_list"
+                  echo ""
+                } > issue.md
+    
+                # Improved suggestions formatting
+                live_suggestions=$(jq -r '.suggestions_formatted | map(select(test("ico\\.org\\.uk"))) | unique | .[]' <<< "$line")
+                archive_suggestions=$(jq -r '.suggestions_formatted | map(select(test("web\.archive\.org|nationalarchives|nrscotland"))) | unique | .[]' <<< "$line")
+                other_suggestions=$(jq -r '.suggestions_formatted | map(select(. | test("ico\\.org\\.uk|web\.archive\.org|nationalarchives|nrscotland") | not)) | unique | .[]' <<< "$line")
+    
+                if [[ -n "$live_suggestions" || -n "$archive_suggestions" || -n "$other_suggestions" ]]; then
+                  echo "### Suggestions" >> issue.md
+                  echo "" >> issue.md
+                  echo "The following are possible alternatives for the broken link (prefer live links if possible):" >> issue.md
+                  echo "" >> issue.md
+                  if [[ -n "$live_suggestions" ]]; then
+                    echo "**Live:**" >> issue.md
+                    echo "$live_suggestions" | sed 's/^/- /' >> issue.md
+                    echo "" >> issue.md
+                  fi
+                  if [[ -n "$archive_suggestions" ]]; then
+                    echo "**Archive:**" >> issue.md
+                    echo "$archive_suggestions" | sed 's/^/- /' >> issue.md
+                    echo "" >> issue.md
+                  fi
+                  if [[ -n "$other_suggestions" ]]; then
+                    echo "**Other:**" >> issue.md
+                    echo "$other_suggestions" | sed 's/^/- /' >> issue.md
+                    echo "" >> issue.md
+                  fi
+                  echo "_If possible, please update to a live link. Archive links are for reference only._" >> issue.md
+                  echo "" >> issue.md
+                fi
+    
+                if [[ "$affected_files" != *"lib/views/help/"* ]]; then
+                  echo "----" >> issue.md
+                  echo "If this file _should not_ be included in the list of affected files, please update the ignore list in the check workflow." >> issue.md
+                fi
+    
+                if [[ -n "$existing_issues" ]]; then
+                  {
+                    echo "🔄 **Update:** Broken link still exists. 😩"
+                    echo ""
+                    echo "**Status Code:** \`$status_code\` _$status_text_"
+                    echo ""
+                    echo "## Affected Files"
+                    echo "$file_list"
+                  } > comment.md
+    
+                  for existing_issue in $existing_issues; do
+                    echo "Updating existing issue #$existing_issue"
+                    gh issue comment "$existing_issue" --body-file comment.md || {
+                      echo "Warning: Failed to comment on issue #$existing_issue"
+                      continue
+                    }
+                  done
+                else
+                  echo "Creating new issue for: $url"
+                  gh issue create --title "$issue_title" --body-file issue.md --label "$labels" || {
+                    echo "Warning: Failed to create issue for $url"
+                    continue
+                  }
+                fi
+    
+                ((issue_count++))
+    
+                if [[ "$test_mode" == "true" && "$issue_count" -ge "$max_test_issues" ]]; then
+                  echo "Test mode: stopping after $issue_count issues."
+                  break
+                fi
+    
+              done < <(jq -c 'select(. != null) | .[]' broken-links-artifact/reformatted_broken_links.json)
+    
+              exit 0    
