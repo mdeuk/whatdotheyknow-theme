@@ -396,8 +396,11 @@
                 labels="broken-link,non-developer"
                 [[ "$affected_files" == *"lib/views/help/"* ]] && labels+=",help-pages"
     
-                file_list=$(jq -r ".files | map(\"- [📄 \\(. | gsub(\" \", \"%20\"))](https://github.com/${{github.repository}}/blob/master/\\(.))\") | join(\"\\n\")" <<< "$line")
-    
+                file_list=$(jq -r '.files | select(length > 0) | map("- [📄 \(. | gsub(" ", "%20"))](https://github.com/${{github.repository}}/blob/master/\(.))") | join("\n")' <<< "$line")
+                if [[ -z "$file_list" ]]; then
+                  file_list="(No files listed for this broken link)"
+                fi
+
                 {
                   echo "**Broken Link:** [$url_safe]($url_safe)"
                   echo ""
@@ -421,6 +424,8 @@
                   if [[ -n "$live_suggestions" ]]; then
                     echo "**Live:**" >> issue.md
                     echo "$live_suggestions" | sed 's/^/- /' >> issue.md
+                    echo "" >> issue.md
+                    echo "_Live links are suggested automatically and may not be the correct replacement. Please check before updating._" >> issue.md
                     echo "" >> issue.md
                   fi
                   if [[ -n "$archive_suggestions" ]]; then
@@ -476,4 +481,4 @@
     
               done < <(jq -c 'select(. != null) | .[]' broken-links-artifact/reformatted_broken_links.json)
     
-              exit 0    
+              exit 0
