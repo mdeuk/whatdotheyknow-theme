@@ -1,11 +1,35 @@
+# -----------------------------------------------------------------------------
+# Workflow: Check Broken Links in help pages
+#
+# Scans the ERB templates under lib/views with lychee, then raises (or updates)
+# one GitHub issue per broken URL, with suggested replacements.
+#
+# Jobs:
+# -----
+# 1. check-links
+#    - Runs lychee over lib/views/**/*.erb (minus the ignore list in "List files
+#      to check"), with a persistent cache so unchanged links aren't re-checked
+#      every run.
+#    - Groups lychee's JSON output by URL, keeping the file and line of each
+#      occurrence, and attaches suggestions:
+#        * live:    closest match in the ICO sitemap (ico.org.uk links only)
+#        * archive: closest Wayback Machine snapshot, plus Wayback / UK
+#                   Government Web Archive / NRS Web Continuity search links
+#    - Uploads lychee_report.json + reformatted_broken_links.json as an artifact
+#      and writes a summary table to the run page.
+#
+# 2. create-issues (only when broken links were found and issue creation is on)
+#    - Creates an issue per broken URL (labelled broken-link, non-developer and,
+#      for help pages, help-pages), or comments on the open issue with the same
+#      title if there already is one.
+#    - Fails the job if any gh call fails, so problems aren't hidden.
+#
+# Run modes:
+# ----------
+# - Scheduled: creates/updates issues, no limit.
+# - Manual (workflow_dispatch): createIssues / testMode / howManyIssues inputs.
+# -----------------------------------------------------------------------------
 name: Check Broken Links in help pages
-
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  test_mode: false
-  create_issues: true
-  max_test_issues: 5
-  DOMAIN_TO_FILTER: ico.org.uk
 
 on:
   schedule:
@@ -14,111 +38,374 @@ on:
     inputs:
       testMode:
         type: boolean
-        description: Run in test mode (only logs results without creating issues)?
+        description: Test mode? (limits how many issues are created/updated)
         default: true
       createIssues:
         type: boolean
-        description: Create issues for broken links (ignored in test mode)?
+        description: Create issues for broken links?
         default: false
-      maxIssues:
+      howManyIssues:
         type: number
-        description: Max number of issues to create (test mode only)?
+        description: Max issues in test mode
         default: 1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  # Scheduled runs: never test mode. Manual runs: whatever was chosen.
+  TEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.testMode }}
+  MAX_TEST_ISSUES: ${{ inputs.howManyIssues || 5 }}
 
 jobs:
   check-links:
     name: Check for Broken Links in ERB files
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
+    outputs:
+      broken_links: ${{ steps.process.outputs.broken_links }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install required tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y xmlstarlet python3-pip
-          pip3 install rapidfuzz lxml jq
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Determine workflow inputs
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          echo "test_mode=${{ github.event.inputs.testMode }}" >> $GITHUB_ENV
-          echo "create_issues=${{ github.event.inputs.createIssues }}" >> $GITHUB_ENV
-          echo "max_test_issues=${{ github.event.inputs.maxIssues }}" >> $GITHUB_ENV
+      - name: Install Python dependencies
+        run: pip install rapidfuzz
 
       - name: Restore lychee cache
-        id: restore-cache
         uses: actions/cache/restore@v4
         with:
           path: .lycheecache
-          key: cache-lychee-broken-links-${{ hashFiles('.lycheeignore', '.github/workflows/broken-link-checker.yml') }}
-          restore-keys: cache-lychee-
+          key: lychee-${{ github.run_id }}
+          restore-keys: lychee-
 
-      - name: Define ignored files
+      - name: List files to check
         run: |
-          echo "lib/views/public_body/_more_info.html.erb" > .lycheeignore
-          echo "lib/views/general/_frontpage_videos.html.erb" >> .lycheeignore
+          # Repo-relative paths that should never be checked.
+          cat > "$RUNNER_TEMP/ignored-files.txt" <<'EOF'
+          lib/views/public_body/_more_info.html.erb
+          lib/views/general/_frontpage_videos.html.erb
+          EOF
 
-      - name: Precompute ERB files
-        run: |
-          find lib/views -name '*.erb' | grep -v -f .lycheeignore > .erb-files-list
+          find lib/views -type f -name '*.erb' \
+            | grep -vxF -f "$RUNNER_TEMP/ignored-files.txt" \
+            | sort > "$RUNNER_TEMP/files-to-check.txt"
 
-      - name: Run Lychee to Check Links
-        uses: lycheeverse/lychee-action@v2.2.0
+          echo "Checking $(wc -l < "$RUNNER_TEMP/files-to-check.txt") files"
+
+      - name: Run lychee
+        uses: lycheeverse/lychee-action@v2.9.0
         with:
-          args: "--cache --max-cache-age 1d --cache-exclude-status '429, 500..502' --quiet --no-progress --user-agent '${{ github.repository }} (lychee)' --exclude-path .lycheeignore --suggest --verbose"
+          args: >-
+            --cache --max-cache-age 1d
+            --cache-exclude-status '429, 500..502'
+            --no-progress
+            --user-agent '${{ github.repository }} (lychee)'
+            --exclude whatdotheyknow.com
+            --suggest --archive wayback
+            --files-from '${{ runner.temp }}/files-to-check.txt'
           output: lychee_report.json
           format: json
           fail: false
 
-      - name: Process Lychee Output
+      - name: Group results and add suggestions
+        id: process
         run: |
-          if [ -s lychee_report.json ] && [ "$(jq -r '.error_map' lychee_report.json)" != "{}" ]; then
-            echo "Processing Lychee report..."
-            jq -r '
-              . as $root
-              | [ $root.error_map
-                  | to_entries[]
-                  | select(.value != null)
-                  | { file: .key, errors: .value }
-                ]
-              | map(
-                  ( .errors // [] )[] | { file: .file, url: .url, status: .status }
-                )
-              | group_by(.url)
-              | map({
-                  url: .[0].url,
-                  status: .[0].status,
-                  files: (map(.file) | unique | sort),
-                  suggestions: (
-                    .[0].url as $url
-                    | (map(.file) | unique)
-                      | map( ($root.suggestion_map[.] // [])
-                          | map(select(.original == $url) | .suggestion)
-                        )
-                      | flatten
-                      | unique
-                  )
-                })
-            ' lychee_report.json > reformatted_broken_links.json
+          python3 - <<'EOF'
+          import json
+          import os
+          import time
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          from urllib.parse import quote, urlparse
 
-            echo "Processed results saved to reformatted_broken_links.json"
-          else
-            echo "No broken links detected."
-            echo "[]" > reformatted_broken_links.json
-          fi
+          from rapidfuzz import fuzz, process
 
-      - name: Upload Broken Links Report
+          UA = os.environ["GITHUB_REPOSITORY"] + " (broken-link-checker)"
+          SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+          UKGWA_DOMAINS = ("ico.org.uk", "gov.uk", "gov.wales", "llyw.cymru", "gov.scot")
+          ICO_MATCH_THRESHOLD = 90
+
+
+          def on_domain(url, domains):
+              host = (urlparse(url).hostname or "").lower()
+              if isinstance(domains, str):
+                  domains = (domains,)
+              return any(host == d or host.endswith("." + d) for d in domains)
+
+
+          def add_suggestion(link, kind, label, url):
+              if all(s["url"] != url for s in link["suggestions"]):
+                  link["suggestions"].append({"kind": kind, "label": label, "url": url})
+
+
+          def slug(url):
+              """Last non-empty path segment, e.g. 'section-26-defence'."""
+              parts = [p for p in urlparse(url).path.split("/") if p]
+              return parts[-1].lower() if parts else ""
+
+
+          def fetch(url):
+              req = urllib.request.Request(url, headers={"User-Agent": UA})
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return resp.read()
+
+
+          def fetch_sitemap(url, depth=0):
+              """Return every page URL in a sitemap, following sitemap indexes."""
+              root = ET.fromstring(fetch(url))
+              locs = [l.text.strip() for l in root.iter(SITEMAP_NS + "loc") if l.text]
+              if root.tag != SITEMAP_NS + "sitemapindex":
+                  return locs
+              if depth >= 2:
+                  return []
+              return [u for loc in locs for u in fetch_sitemap(loc, depth + 1)]
+
+
+          def wayback_snapshot(url):
+              """Closest Wayback Machine capture of url, or None."""
+              try:
+                  data = json.loads(fetch("https://archive.org/wayback/available?url=" + quote(url, safe="")))
+              except Exception as e:
+                  print(f"Wayback lookup failed for {url}: {e}")
+                  return None
+              closest = (data.get("archived_snapshots") or {}).get("closest") or {}
+              if closest.get("available") and closest.get("url"):
+                  return closest["url"].replace("http://", "https://", 1)
+              return None
+
+
+          with open("lychee_report.json") as f:
+              report = json.load(f)
+
+          # error_map: {input file: [{url, status: {text, code?}, span: {line, column}}]}
+          links = {}
+          for path, errors in (report.get("error_map") or {}).items():
+              for err in errors:
+                  link = links.setdefault(err["url"], {
+                      "url": err["url"],
+                      "status": err.get("status") or {},
+                      "locations": set(),
+                      "suggestions": [],
+                  })
+                  link["locations"].add((path, (err.get("span") or {}).get("line")))
+
+          # Live replacements from the ICO sitemap
+          ico_links = [l for l in links.values() if on_domain(l["url"], "ico.org.uk")]
+          if ico_links:
+              try:
+                  # Compare page slugs: ICO moves pages around but usually keeps the slug
+                  sitemap = {u: slug(u) for u in fetch_sitemap("https://ico.org.uk/sitemap.xml")}
+                  print(f"Fetched {len(sitemap)} URLs from the ICO sitemap")
+              except Exception as e:
+                  print(f"::warning::Couldn't fetch the ICO sitemap, skipping live suggestions: {e}")
+                  sitemap = {}
+              for link in ico_links if sitemap else []:
+                  if not slug(link["url"]):
+                      continue
+                  match = process.extractOne(slug(link["url"]), sitemap, scorer=fuzz.ratio,
+                                             score_cutoff=ICO_MATCH_THRESHOLD)
+                  if match and match[2] != link["url"]:
+                      best_url, score = match[2], match[1]
+                      print(f"Best match for {link['url']}: {best_url} ({score:.0f}%)")
+                      add_suggestion(link, "live", f"ICO sitemap match ({score:.0f}%)", best_url)
+
+          # Snapshots lychee found itself: {input file: [{original, suggestion}]}
+          for items in (report.get("suggestion_map") or {}).values():
+              for s in items:
+                  if s.get("original") in links:
+                      add_suggestion(links[s["original"]], "archive", "Wayback Machine snapshot",
+                                     s["suggestion"].replace("http://", "https://", 1))
+
+          for link in links.values():
+              url = link["url"]
+              # lychee skips snapshot lookups when archive.org throttles it, so fill the gaps
+              if not any(s["label"] == "Wayback Machine snapshot" for s in link["suggestions"]):
+                  snapshot = wayback_snapshot(url)
+                  if snapshot:
+                      add_suggestion(link, "archive", "Wayback Machine snapshot", snapshot)
+                  time.sleep(1)
+
+              # Archive search pages, for a human to pick a capture from
+              add_suggestion(link, "archive", "Wayback Machine (all captures)",
+                             f"https://web.archive.org/web/*/{url}")
+              if on_domain(url, UKGWA_DOMAINS) or on_domain(url, "scot"):
+                  add_suggestion(link, "archive", "UK Government Web Archive",
+                                 f"https://webarchive.nationalarchives.gov.uk/ukgwa/*/{url}")
+              if on_domain(url, "scot"):
+                  add_suggestion(link, "archive", "NRS Web Continuity Service",
+                                 f"https://webarchive.nrscotland.gov.uk/*/{url}")
+
+          result = []
+          for link in sorted(links.values(), key=lambda l: l["url"]):
+              locations = sorted(link["locations"], key=lambda loc: (loc[0], loc[1] or 0))
+              result.append({
+                  **link,
+                  "files": sorted({path for path, _ in locations}),
+                  "locations": [{"file": path, "line": line} for path, line in locations],
+              })
+          with open("reformatted_broken_links.json", "w") as f:
+              json.dump(result, f, indent=2)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"broken_links={'true' if result else 'false'}\n")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"## Broken links: {len(result)}\n\n")
+              if result:
+                  f.write("| URL | Status | Found in |\n|---|---|---|\n")
+                  for l in result:
+                      status = str(l["status"].get("code") or l["status"].get("text", "")).replace("|", "\\|")
+                      found = "<br>".join(f"{loc['file']}:{loc['line']}" for loc in l["locations"])
+                      f.write(f"| {l['url'].replace('|', '%7C')} | {status} | {found} |\n")
+          print(f"{len(result)} broken links")
+          EOF
+
+      - name: Upload broken links
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: broken-links
           path: |
             reformatted_broken_links.json
             lychee_report.json
+          if-no-files-found: warn
           retention-days: 7
 
-      - name: Save updated lychee cache
+      - name: Save lychee cache
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: .lycheecache
-          key: cache-lychee-broken-links
+          key: lychee-${{ github.run_id }}
+
+  create-issues:
+    name: Create Issues for Broken Links
+    runs-on: ubuntu-latest
+    needs: check-links
+    if: >-
+      needs.check-links.outputs.broken_links == 'true'
+      && (github.event_name != 'workflow_dispatch' || inputs.createIssues)
+    permissions:
+      issues: write
+    steps:
+      - name: Download broken links artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: broken-links
+          path: broken-links-artifact
+
+      - name: Create (or update) issues for each broken link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import subprocess
+          from urllib.parse import quote
+
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          FILE_URL = f"{os.environ['GITHUB_SERVER_URL']}/{REPO}/blob/{quote(os.environ['REF'])}/"
+          TEST_MODE = os.environ["TEST_MODE"] == "true"
+          MAX_TEST_ISSUES = int(os.environ["MAX_TEST_ISSUES"])
+
+
+          def gh(*args):
+              return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+
+
+          def md_link(text, url):
+              return f"[{text}](<{url}>)"
+
+
+          def files_md(link):
+              """One bullet per file, linking to the first line the URL appears on."""
+              lines = []
+              for path in link["files"]:
+                  nums = [loc["line"] for loc in link["locations"] if loc["file"] == path and loc["line"]]
+                  anchor = f"#L{nums[0]}" if nums else ""
+                  where = f" (line{'s' if len(nums) > 1 else ''} {', '.join(map(str, nums))})" if nums else ""
+                  lines.append(f"- {md_link('📄 ' + path, FILE_URL + quote(path) + anchor)}{where}")
+              return "\n".join(lines)
+
+
+          open_issues = {}
+          for issue in json.loads(gh("issue", "list", "--state", "open", "--label", "broken-link",
+                                     "--limit", "1000", "--json", "number,title")):
+              open_issues.setdefault(issue["title"], []).append(issue["number"])
+
+          with open("broken-links-artifact/reformatted_broken_links.json") as f:
+              links = json.load(f)
+
+          handled = 0
+          failures = 0
+          for link in links:
+              if TEST_MODE and handled >= MAX_TEST_ISSUES:
+                  print(f"Test mode: stopping after {handled} issues.")
+                  break
+
+              url = link["url"]
+              title = f"Broken Link: {url}"[:256]
+              status = link.get("status") or {}
+              status_line = f"**Status:** `{status.get('code', 'n/a')}` _{status.get('text', 'Unknown')}_"
+              in_help = any(p.startswith("lib/views/help/") for p in link["files"])
+
+              try:
+                  if title in open_issues:
+                      body = "\n".join([
+                          "🔄 **Update:** Broken link still exists. 😩", "",
+                          status_line, "",
+                          "## Affected Files", files_md(link),
+                      ])
+                      for number in open_issues[title]:
+                          print(f"Commenting on #{number} for {url}")
+                          gh("issue", "comment", str(number), "--body", body)
+                  else:
+                      body = [
+                          f"**Broken Link:** {md_link(url, url)}", "",
+                          status_line, "",
+                          "## Affected Files", files_md(link), "",
+                      ]
+                      groups = [
+                          ("Live", [s for s in link["suggestions"] if s["kind"] == "live"]),
+                          ("Archive", [s for s in link["suggestions"] if s["kind"] == "archive"]),
+                      ]
+                      if any(items for _, items in groups):
+                          body += ["### Suggestions", "",
+                                   "Possible alternatives for the broken link (prefer live links if possible):", ""]
+                          for heading, items in groups:
+                              if items:
+                                  body.append(f"**{heading}:**")
+                                  body += [f"- {md_link(s['url'], s['url'])} ({s['label']})" for s in items]
+                                  body.append("")
+                          body += ["_If possible, please update to a live link. Archive links are for reference only._", ""]
+                      if not in_help:
+                          body += ["----",
+                                   "If this file _should not_ be checked, add it to the ignore list in the "
+                                   "broken link checker workflow."]
+
+                      labels = ["broken-link", "non-developer"] + (["help-pages"] if in_help else [])
+                      print(f"Creating issue for {url}")
+                      gh("issue", "create", "--title", title, "--body", "\n".join(body), "--label", ",".join(labels))
+              except subprocess.CalledProcessError as e:
+                  failures += 1
+                  print(f"::error::gh failed for {url}: {e.stderr.strip()}")
+                  continue
+
+              handled += 1
+
+          print(f"Handled {handled} broken links, {failures} failures.")
+          if failures:
+              raise SystemExit(1)
+          EOF
